@@ -50,6 +50,37 @@ function ResultTable({ rows, rowCount }: { rows: Record<string, unknown>[]; rowC
   )
 }
 
+function ReasoningBlock({ reasoning, streaming, defaultOpen }: { reasoning: string; streaming: boolean; defaultOpen: boolean }) {
+  const [expanded, setExpanded] = useState(defaultOpen)
+
+  // Auto-expand while streaming, auto-collapse once done
+  useEffect(() => {
+    if (streaming) setExpanded(true)
+    else setExpanded(false)
+  }, [streaming])
+
+  return (
+    <div className="border border-white/[0.06] rounded-xl overflow-hidden bg-amber-950/10">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider">Reasoning</span>
+          {streaming && <Loader2 size={10} className="animate-spin text-amber-400/60" />}
+          {!streaming && <span className="text-[9px] text-gray-600">{reasoning.split('\n').filter(l => l.trim()).length} steps</span>}
+        </div>
+        {expanded ? <ChevronUp size={11} className="text-gray-600" /> : <ChevronDown size={11} className="text-gray-600" />}
+      </button>
+      {expanded && (
+        <div className="px-3 py-2.5 text-xs text-gray-400 leading-relaxed whitespace-pre-wrap border-t border-white/[0.04]">
+          {reasoning}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: string, correct: boolean) => Promise<void> }) {
   const [sqlExpanded, setSqlExpanded] = useState(false)
 
@@ -69,20 +100,14 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
         </div>
       )}
 
-      {/* Reasoning block */}
-      {msg.reasoning && (
-        <div className="border border-white/[0.06] rounded-xl overflow-hidden bg-amber-950/10">
-          <div className="px-3 py-2 flex items-center gap-2 bg-white/[0.02]">
-            <span className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider">Reasoning</span>
-            {msg.status === 'streaming' && !msg.sql && (
-              <Loader2 size={10} className="animate-spin text-amber-400/60" />
-            )}
-          </div>
-          <div className="px-3 py-2.5 text-xs text-gray-400 leading-relaxed whitespace-pre-wrap border-t border-white/[0.04]">
-            {msg.reasoning}
-          </div>
-        </div>
-      )}
+      {/* Reasoning block — collapsible, collapsed by default once SQL is ready */}
+      {msg.reasoning && (() => {
+        const isStreaming = msg.status === 'streaming' && !msg.sql
+        const defaultOpen = isStreaming // auto-open while streaming, collapse once SQL appears
+        return (
+          <ReasoningBlock reasoning={msg.reasoning} streaming={isStreaming} defaultOpen={defaultOpen} />
+        )
+      })()}
 
       {/* SQL block */}
       {msg.sql && (
