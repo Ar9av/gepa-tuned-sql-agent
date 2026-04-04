@@ -1,6 +1,28 @@
 import { create } from 'zustand'
 import type { SchemaGraph } from '@/lib/db'
+import type { DBConfig } from '@/lib/connector'
 import { GOLDEN_QUERIES } from '@/lib/golden-dataset'
+
+export interface ChatMessage {
+  id: string
+  question: string
+  sql: string
+  rows: Record<string, unknown>[]
+  rowCount: number
+  attempts: number
+  status: 'streaming' | 'done' | 'error'
+  errorMsg?: string
+  feedback: null | 'correct' | 'wrong'
+  feedbackSending?: boolean
+}
+
+export interface GepaRun {
+  generation: number
+  score: number
+  label: string
+  timestamp: number
+  triggeredBy: string
+}
 
 export interface BenchmarkQueryResult {
   id: string
@@ -116,6 +138,35 @@ interface DemoStore {
   setBenchmarkScore: (s: number) => void
   setActiveBenchmarkId: (id: string | null) => void
   resetBenchmark: () => void
+
+  // Connection state
+  activeConnection: DBConfig | null
+  connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error'
+
+  // Chat state
+  chatMessages: ChatMessage[]
+
+  // Tuning / GEPA runs
+  gepaRuns: GepaRun[]
+  currentGeneration: number
+
+  // Modal state
+  connectModalOpen: boolean
+
+  // Connection actions
+  setActiveConnection: (c: DBConfig | null) => void
+  setConnectionStatus: (s: 'disconnected' | 'connecting' | 'connected' | 'error') => void
+
+  // Chat actions
+  addChatMessage: (msg: ChatMessage) => void
+  updateChatMessage: (id: string, update: Partial<ChatMessage>) => void
+  clearChat: () => void
+
+  // GEPA run actions
+  addGepaRun: (run: GepaRun) => void
+
+  // Modal actions
+  setConnectModalOpen: (open: boolean) => void
 }
 
 export const useDemoStore = create<DemoStore>((set, get) => ({
@@ -249,4 +300,38 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
       agentRowCount: null,
     })),
   }),
+
+  // Connection state
+  activeConnection: null,
+  connectionStatus: 'disconnected',
+
+  // Chat state
+  chatMessages: [],
+
+  // Tuning / GEPA runs
+  gepaRuns: [],
+  currentGeneration: 0,
+
+  // Modal state
+  connectModalOpen: false,
+
+  // Connection actions
+  setActiveConnection: (c) => set({ activeConnection: c }),
+  setConnectionStatus: (s) => set({ connectionStatus: s }),
+
+  // Chat actions
+  addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
+  updateChatMessage: (id, update) => set((s) => ({
+    chatMessages: s.chatMessages.map(m => m.id === id ? { ...m, ...update } : m),
+  })),
+  clearChat: () => set({ chatMessages: [] }),
+
+  // GEPA run actions
+  addGepaRun: (run) => set((s) => ({
+    gepaRuns: [...s.gepaRuns, run],
+    currentGeneration: run.generation,
+  })),
+
+  // Modal actions
+  setConnectModalOpen: (open) => set({ connectModalOpen: open }),
 }))

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, GitFork, Table2, Code2, Target } from 'lucide-react'
+import { Zap, GitFork, Table2, Code2, Target, Database, MessageSquare } from 'lucide-react'
 
 import { DatasetPanel } from '@/components/DatasetPanel'
 import { BenchmarkPanel } from '@/components/BenchmarkPanel'
@@ -11,11 +11,18 @@ import { PromptEvolution } from '@/components/PromptEvolution'
 import { ERDiagram } from '@/components/ERDiagram'
 import { TableBrowser } from '@/components/TableBrowser'
 import { SQLPlayground } from '@/components/SQLPlayground'
+import { ConnectModal } from '@/components/ConnectModal'
+import { ChatPanel } from '@/components/ChatPanel'
+import { TuningGraph } from '@/components/TuningGraph'
 import { useDemoStore } from '@/store/demo-store'
+import type { SchemaGraph } from '@/lib/db'
+import type { DBConfig } from '@/lib/connector'
+import type { TableStat } from '@/store/demo-store'
 
-type Tab = 'benchmark' | 'er' | 'browser' | 'playground'
+type Tab = 'chat' | 'benchmark' | 'er' | 'browser' | 'playground'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'chat', label: 'Chat', icon: <MessageSquare size={12} /> },
   { id: 'benchmark', label: 'Benchmark', icon: <Target size={12} /> },
   { id: 'er', label: 'ER Diagram', icon: <GitFork size={12} /> },
   { id: 'browser', label: 'Browse Data', icon: <Table2 size={12} /> },
@@ -23,8 +30,17 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>('benchmark')
-  const { setDbSeeded, setTableStats, setSchemaGraph } = useDemoStore()
+  const [activeTab, setActiveTab] = useState<Tab>('chat')
+  const {
+    setDbSeeded,
+    setTableStats,
+    setSchemaGraph,
+    connectModalOpen,
+    setConnectModalOpen,
+    activeConnection,
+    setActiveConnection,
+    connectionStatus,
+  } = useDemoStore()
 
   useEffect(() => {
     fetch('/api/init')
@@ -41,6 +57,13 @@ export default function Home() {
       .catch(() => {})
   }, [setDbSeeded, setTableStats, setSchemaGraph])
 
+  function handleConnect(schemaGraph: SchemaGraph, tables: TableStat[], config: DBConfig) {
+    setActiveConnection(config)
+    setSchemaGraph(schemaGraph)
+    setTableStats(tables)
+    setActiveTab('chat')
+  }
+
   return (
     <div className="min-h-screen bg-[#08080d] text-white flex flex-col" style={{ fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace' }}>
       {/* Header */}
@@ -53,6 +76,31 @@ export default function Home() {
             <h1 className="text-sm font-bold text-white tracking-tight">SQL Agent</h1>
             <p className="text-[10px] text-gray-600">Self-debugging &middot; GEPA prompt evolution</p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Connection status */}
+          {activeConnection && connectionStatus === 'connected' && (
+            <div className="flex items-center gap-1.5 text-[10px] text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+              connected: {activeConnection.name}
+            </div>
+          )}
+          {connectionStatus === 'connecting' && (
+            <div className="flex items-center gap-1.5 text-[10px] text-amber-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block animate-pulse" />
+              connecting...
+            </div>
+          )}
+
+          {/* Connect DB button */}
+          <button
+            onClick={() => setConnectModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-lg hover:bg-white/[0.07] hover:border-white/[0.12] hover:text-white transition-all"
+          >
+            <Database size={13} />
+            Connect DB
+          </button>
         </div>
       </header>
 
@@ -97,6 +145,7 @@ export default function Home() {
                 transition={{ duration: 0.15 }}
                 className="absolute inset-0 flex flex-col overflow-hidden"
               >
+                {activeTab === 'chat' && <ChatPanel />}
                 {activeTab === 'benchmark' && <BenchmarkPanel />}
                 {activeTab === 'er' && <ERDiagram />}
                 {activeTab === 'browser' && <TableBrowser />}
@@ -114,12 +163,22 @@ export default function Home() {
           <div className="p-4 border-b border-white/[0.06]">
             <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
               <Zap size={10} className="text-violet-400" />
+              Tuning Progress
+            </div>
+            <TuningGraph />
+          </div>
+          <div className="p-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
+              <Zap size={10} className="text-violet-400" />
               Learning Progress
             </div>
             <PerformanceGraph />
           </div>
         </aside>
       </div>
+
+      {/* Connect Modal */}
+      <ConnectModal onConnect={handleConnect} />
     </div>
   )
 }
