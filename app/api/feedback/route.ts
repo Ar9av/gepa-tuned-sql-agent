@@ -32,14 +32,14 @@ export async function POST(req: NextRequest) {
     wrongStreak = 0
   }
 
-  const shouldRun = shouldOptimize() || wrongStreak >= 3
+  const shouldRun = shouldOptimize() || wrongStreak >= 2
 
   if (!shouldRun) {
     return Response.json({ recorded: true, optimized: false })
   }
 
   // Reset wrong streak
-  if (wrongStreak >= 3) wrongStreak = 0
+  if (wrongStreak >= 2) wrongStreak = 0
 
   // Save the old prompt for diff summary
   previousPrompt = getCurrentPrompt()

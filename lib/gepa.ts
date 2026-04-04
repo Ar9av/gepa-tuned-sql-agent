@@ -74,7 +74,7 @@ export function resetOptimizer() {
 // Run one GEPA optimization cycle
 // Called after every 4 queries that have been recorded
 export async function runOptimizationCycle(): Promise<{ newPrompt: string; reflection: string } | null> {
-  if (history.length < 4) return null
+  if (history.length < 2) return null
 
   const recentFailures = history.filter(h => h.attempts > 1 || !h.success).slice(-8)
   if (recentFailures.length < 2) return null
@@ -140,7 +140,7 @@ Rules for the new prompt:
 }
 
 export function shouldOptimize(): boolean {
-  return history.length > 0 && history.length % 4 === 0
+  return history.length > 0 && history.length % 2 === 0
 }
 
 // Run the full 20-query benchmark against the current best prompt
