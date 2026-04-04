@@ -21,9 +21,9 @@ import type { TableStat } from '@/store/demo-store'
 
 type Tab = 'chat' | 'benchmark' | 'er' | 'browser' | 'playground'
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+const ALL_TABS: { id: Tab; label: string; icon: React.ReactNode; benchmarkOnly?: boolean }[] = [
   { id: 'chat', label: 'Chat', icon: <MessageSquare size={12} /> },
-  { id: 'benchmark', label: 'Benchmark', icon: <Target size={12} /> },
+  { id: 'benchmark', label: 'Benchmark', icon: <Target size={12} />, benchmarkOnly: true },
   { id: 'er', label: 'ER Diagram', icon: <GitFork size={12} /> },
   { id: 'browser', label: 'Browse Data', icon: <Table2 size={12} /> },
   { id: 'playground', label: 'SQL', icon: <Code2 size={12} /> },
@@ -119,7 +119,7 @@ export default function Home() {
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Tab bar */}
           <div className="flex items-center gap-1 px-4 py-2.5 border-b border-white/[0.06] bg-[#09090f] shrink-0">
-            {TABS.map(tab => (
+            {ALL_TABS.filter(tab => !tab.benchmarkOnly || (activeConnection?.name === 'Benchmark DB')).map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}

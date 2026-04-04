@@ -1,11 +1,25 @@
 import { NextRequest } from 'next/server'
-import { recordResult, shouldOptimize, runOptimizationCycle, getParetoFront, getCurrentPrompt } from '@/lib/gepa'
+import { recordResult, shouldOptimize, runOptimizationCycle, getParetoFront, getCurrentPrompt, getHistory } from '@/lib/gepa'
 import { runBenchmark } from '@/lib/benchmark'
 import { complete } from '@/lib/llm'
+import { getActiveConfig } from '@/lib/connector'
 
 // Module-level wrong streak tracker
 let wrongStreak = 0
 let previousPrompt = ''
+
+function isBenchmarkDB(): boolean {
+  const config = getActiveConfig()
+  if (!config) return false
+  return config.type === 'sqlite' && config.name === 'Benchmark DB'
+}
+
+function feedbackScore(): number {
+  const history = getHistory()
+  if (history.length === 0) return 0.5
+  const recent = history.slice(-10)
+  return recent.filter(h => h.success).length / recent.length
+}
 
 export async function POST(req: NextRequest) {
   const { correct, question, sql, rowCount } = (await req.json()) as {
@@ -63,9 +77,7 @@ export async function POST(req: NextRequest) {
 
         send({ type: 'gepa_status', step: 'mutated', message: 'New prompt generated' })
 
-        // Step 2: Benchmark
-        send({ type: 'gepa_status', step: 'benchmarking', message: 'Scoring new prompt against benchmark...' })
-
+        // Step 2: Score the new prompt
         let score = 0
         let generation = 1
         const front = getParetoFront()
@@ -74,14 +86,22 @@ export async function POST(req: NextRequest) {
           score = front.reduce((a, b) => (a.score > b.score ? a : b)).score
         }
 
-        try {
-          for await (const event of runBenchmark(optimizationResult.newPrompt, ['gq-01', 'gq-02', 'gq-03', 'gq-04', 'gq-05'])) {
-            if (event.type === 'done') {
-              score = event.overallScore
+        if (isBenchmarkDB()) {
+          // Benchmark mode: run golden queries for real scoring
+          send({ type: 'gepa_status', step: 'benchmarking', message: 'Scoring against benchmark queries...' })
+          try {
+            for await (const event of runBenchmark(optimizationResult.newPrompt, ['gq-01', 'gq-02', 'gq-03', 'gq-04', 'gq-05'])) {
+              if (event.type === 'done') {
+                score = event.overallScore
+              }
             }
+          } catch {
+            // use fallback score
           }
-        } catch {
-          // use fallback score
+        } else {
+          // Custom DB mode: score from user feedback history
+          send({ type: 'gepa_status', step: 'scoring', message: 'Scoring from your feedback history...' })
+          score = feedbackScore()
         }
 
         // Step 3: Generate diff summary
