@@ -7,7 +7,7 @@ export const llm = new OpenAI({
   defaultHeaders: { 'Authorization': `Bearer ${process.env.AZURE_API_KEY}` },
 })
 
-export const MODEL = process.env.AZURE_MODEL ?? 'grok-4-1-fast-reasoning'
+export const MODEL = process.env.AZURE_MODEL ?? 'gpt-5.4-nano'
 
 export async function complete(system: string, user: string): Promise<string> {
   const res = await llm.chat.completions.create({

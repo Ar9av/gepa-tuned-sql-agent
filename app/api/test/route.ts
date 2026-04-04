@@ -5,7 +5,7 @@ export async function GET() {
     const res = await llm.chat.completions.create({
       model: MODEL,
       messages: [{ role: 'user', content: 'Reply with just: OK' }],
-      max_tokens: 10,
+      max_completion_tokens: 10,
     })
     return Response.json({ ok: true, reply: res.choices[0].message.content })
   } catch (err: unknown) {
