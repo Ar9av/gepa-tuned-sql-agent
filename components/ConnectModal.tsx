@@ -14,6 +14,7 @@ interface SavedConnection {
   connectionString: string
   filename: string
   lastConnected?: number
+  savedPrompt?: string  // GEPA-evolved prompt for this DB
 }
 
 const LS_KEY = 'sql-agent-connections'
@@ -104,10 +105,12 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
 
   async function doConnect(config: DBConfig, savedId?: string): Promise<boolean> {
     setConnectionStatus('connecting')
+    // Find saved prompt for this connection
+    const savedConn = savedId ? saved.find(s => s.id === savedId) : undefined
     const res = await fetch('/api/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config }),
+      body: JSON.stringify({ config, savedPrompt: savedConn?.savedPrompt }),
     })
     const data = (await res.json()) as {
       ok: boolean

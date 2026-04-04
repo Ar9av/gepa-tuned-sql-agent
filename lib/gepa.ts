@@ -58,6 +58,23 @@ export function getParetoFront(): Candidate[] {
   return [...paretoFront]
 }
 
+export function setCurrentPrompt(prompt: string) {
+  // Replace the best candidate's prompt (or add a new one)
+  if (paretoFront.length > 0) {
+    const best = paretoFront.reduce((a, b) => (a.score > b.score ? a : b))
+    best.systemPrompt = prompt
+  } else {
+    paretoFront.push({
+      systemPrompt: prompt,
+      score: 0.5,
+      avgAttempts: 3,
+      successRate: 0.5,
+      generation: 0,
+      feedback: [],
+    })
+  }
+}
+
 export function resetOptimizer() {
   history.length = 0
   paretoFront.length = 0

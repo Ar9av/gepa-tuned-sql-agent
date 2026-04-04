@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
 import { connectDB, getActiveConfig, type DBConfig } from '@/lib/connector'
 import { extractSchemaGraph } from '@/lib/schema-extractor'
+import { setCurrentPrompt, resetOptimizer } from '@/lib/gepa'
 
 export async function POST(req: NextRequest) {
-  const { config } = (await req.json()) as { config: DBConfig }
+  const { config, savedPrompt } = (await req.json()) as { config: DBConfig; savedPrompt?: string }
 
   if (!config?.type || !config?.name) {
     return Response.json({ ok: false, error: 'Invalid config' }, { status: 400 })
@@ -13,6 +14,12 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     return Response.json({ ok: false, error: result.error })
+  }
+
+  // Reset GEPA and load saved prompt for this DB (if any)
+  resetOptimizer()
+  if (savedPrompt) {
+    setCurrentPrompt(savedPrompt)
   }
 
   try {
