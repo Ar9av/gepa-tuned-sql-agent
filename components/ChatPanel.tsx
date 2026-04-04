@@ -290,9 +290,10 @@ export function ChatPanel() {
                 attempts: event.attempt as number,
               })
             } else if (event.type === 'failed') {
+              const lastErr = event.lastError as string | undefined
               updateChatMessage(id, {
                 status: 'error',
-                errorMsg: `Failed after ${event.attempts} attempts`,
+                errorMsg: `Failed after ${event.attempts} attempts${lastErr ? `: ${lastErr}` : ''}`,
               })
             } else if (event.type === 'error' && event.attempt === 0) {
               updateChatMessage(id, {

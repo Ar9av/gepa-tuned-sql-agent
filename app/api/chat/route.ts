@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        send({ type: 'failed', attempts: MAX_ATTEMPTS })
+        send({ type: 'failed', attempts: MAX_ATTEMPTS, lastError, lastSQL })
       } catch (err: unknown) {
         controller.enqueue(
           encoder.encode(
