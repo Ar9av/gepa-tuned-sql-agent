@@ -62,10 +62,25 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
       </div>
 
       {/* Streaming indicator */}
-      {msg.status === 'streaming' && !msg.sql && (
+      {msg.status === 'streaming' && !msg.reasoning && !msg.sql && (
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <Loader2 size={11} className="animate-spin text-violet-400" />
-          Generating SQL...
+          Thinking...
+        </div>
+      )}
+
+      {/* Reasoning block */}
+      {msg.reasoning && (
+        <div className="border border-white/[0.06] rounded-xl overflow-hidden bg-amber-950/10">
+          <div className="px-3 py-2 flex items-center gap-2 bg-white/[0.02]">
+            <span className="text-[10px] font-semibold text-amber-400/70 uppercase tracking-wider">Reasoning</span>
+            {msg.status === 'streaming' && !msg.sql && (
+              <Loader2 size={10} className="animate-spin text-amber-400/60" />
+            )}
+          </div>
+          <div className="px-3 py-2.5 text-xs text-gray-400 leading-relaxed whitespace-pre-wrap border-t border-white/[0.04]">
+            {msg.reasoning}
+          </div>
         </div>
       )}
 
@@ -187,6 +202,7 @@ export function ChatPanel() {
     const msg: ChatMessage = {
       id,
       question,
+      reasoning: '',
       sql: '',
       rows: [],
       rowCount: 0,
@@ -200,7 +216,7 @@ export function ChatPanel() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, businessContext: useDemoStore.getState().businessContext || undefined }),
       })
 
       if (!res.body) throw new Error('No response body')
@@ -226,6 +242,13 @@ export function ChatPanel() {
             if (event.type === 'attempt_start') {
               currentAttempt = event.attempt as number
               updateChatMessage(id, { attempts: currentAttempt })
+            } else if (event.type === 'reasoning_chunk') {
+              const current = chatMessages.find(m => m.id === id)
+              updateChatMessage(id, {
+                reasoning: (current?.reasoning ?? '') + (event.chunk as string),
+              })
+            } else if (event.type === 'reasoning_complete') {
+              updateChatMessage(id, { reasoning: event.reasoning as string })
             } else if (event.type === 'sql_chunk') {
               updateChatMessage(id, {
                 sql: (chatMessages.find(m => m.id === id)?.sql ?? '') + (event.chunk as string),

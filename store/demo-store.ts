@@ -6,6 +6,7 @@ import { GOLDEN_QUERIES } from '@/lib/golden-dataset'
 export interface ChatMessage {
   id: string
   question: string
+  reasoning: string
   sql: string
   rows: Record<string, unknown>[]
   rowCount: number
@@ -77,6 +78,10 @@ interface DemoStore {
   currentQuery: QueryRun | null
   queryHistory: QueryRun[]
   isRunning: boolean
+
+  // Business context
+  businessContext: string
+  businessContextName: string | null
 
   // GEPA state
   currentPrompt: string
@@ -166,6 +171,7 @@ interface DemoStore {
   addGepaRun: (run: GepaRun) => void
 
   // Modal actions
+  setBusinessContext: (text: string, name: string | null) => void
   setConnectModalOpen: (open: boolean) => void
 }
 
@@ -185,6 +191,9 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
   currentQuery: null,
   queryHistory: [],
   isRunning: false,
+
+  businessContext: '',
+  businessContextName: null,
 
   currentPrompt: '',
   optimizations: [],
@@ -333,5 +342,6 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
   })),
 
   // Modal actions
+  setBusinessContext: (text, name) => set({ businessContext: text, businessContextName: name }),
   setConnectModalOpen: (open) => set({ connectModalOpen: open }),
 }))

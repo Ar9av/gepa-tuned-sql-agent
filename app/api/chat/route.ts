@@ -14,7 +14,7 @@ function extractSQL(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { question } = (await req.json()) as { question: string }
+  const { question, businessContext } = (await req.json()) as { question: string; businessContext?: string }
 
   if (!question?.trim()) {
     return new Response('Question required', { status: 400 })
@@ -54,17 +54,40 @@ export async function POST(req: NextRequest) {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           send({ type: 'attempt_start', attempt })
 
+          const contextBlock = businessContext ? `\n\nBusiness Context:\n${businessContext}` : ''
           const userMessage =
             attempt === 1
-              ? `Schema:\n${schemaText}\n\nQuestion: ${question}`
-              : `Schema:\n${schemaText}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL.`
+              ? `Schema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}`
+              : `Schema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL.`
 
+          // Step 1: Generate reasoning
+          let reasoning = ''
+          const reasoningStream = await llm.chat.completions.create({
+            model: MODEL,
+            messages: [
+              { role: 'system', content: `You are a SQL expert. Given a schema and a natural language question, explain your reasoning for how to write the SQL query. Be concise (3-5 bullet points). Focus on: which tables to join, what aggregations are needed, any tricky parts (date functions, window functions, subqueries). Do NOT output SQL — only the reasoning.` },
+              { role: 'user', content: userMessage },
+            ],
+            temperature: 0.1,
+            stream: true,
+          })
+
+          for await (const chunk of reasoningStream) {
+            const delta = chunk.choices[0]?.delta?.content
+            if (delta) {
+              reasoning += delta
+              send({ type: 'reasoning_chunk', chunk: delta, attempt })
+            }
+          }
+          send({ type: 'reasoning_complete', reasoning, attempt })
+
+          // Step 2: Generate SQL (with reasoning as context)
           let sql = ''
           const sqlStream = await llm.chat.completions.create({
             model: MODEL,
             messages: [
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage },
+              { role: 'user', content: userMessage + `\n\nReasoning:\n${reasoning}` },
             ],
             temperature: attempt === 1 ? 0.1 : 0.3,
             stream: true,

@@ -1,13 +1,27 @@
 'use client'
 
+import { useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, Table } from 'lucide-react'
+import { Database, Table, FileText, X, Upload } from 'lucide-react'
 import { useDemoStore } from '@/store/demo-store'
 
 export function DatasetPanel() {
-  const { tableStats } = useDemoStore()
+  const { tableStats, businessContext, businessContextName, setBusinessContext } = useDemoStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const hasSchema = tableStats.length > 0
   const totalRows = tableStats.reduce((s, t) => s + t.rows, 0)
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      setBusinessContext(reader.result as string, file.name)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -44,6 +58,52 @@ export function DatasetPanel() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Business Context Upload */}
+      <div className="border-t border-white/5 pt-3 flex flex-col gap-2">
+        <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+          <FileText size={10} className="text-violet-400" />
+          Business Context
+        </div>
+
+        {businessContext ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-green-400/70 truncate flex-1">
+                {businessContextName ?? 'context.txt'}
+              </span>
+              <button
+                onClick={() => setBusinessContext('', null)}
+                className="text-gray-600 hover:text-red-400 transition-colors p-0.5"
+              >
+                <X size={10} />
+              </button>
+            </div>
+            <pre className="text-[9px] text-gray-500 bg-white/[0.02] rounded-lg px-2 py-1.5 border border-white/5 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+              {businessContext.slice(0, 500)}{businessContext.length > 500 ? '...' : ''}
+            </pre>
+          </div>
+        ) : (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-white/10 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all text-[10px] text-gray-500 hover:text-violet-300"
+          >
+            <Upload size={10} />
+            Upload .md or .txt
+          </button>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.txt,.markdown"
+          className="hidden"
+          onChange={handleFileUpload}
+        />
+        <div className="text-[9px] text-gray-700 leading-relaxed">
+          Add domain knowledge the AI uses when reasoning about queries
+        </div>
+      </div>
 
       {/* Footer note */}
       <div className="text-[10px] text-gray-600 flex items-center gap-1.5">
