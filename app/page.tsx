@@ -1,30 +1,45 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, GitFork, Table2, Code2, Bot } from 'lucide-react'
+import { Zap, GitFork, Table2, Code2, Target } from 'lucide-react'
 
-import { SchemaPanel } from '@/components/SchemaPanel'
-import { QueryInput } from '@/components/QueryInput'
-import { DebugLoop } from '@/components/DebugLoop'
-import { ResultsTable } from '@/components/ResultsTable'
+import { DatasetPanel } from '@/components/DatasetPanel'
+import { BenchmarkPanel } from '@/components/BenchmarkPanel'
 import { PerformanceGraph } from '@/components/PerformanceGraph'
 import { PromptEvolution } from '@/components/PromptEvolution'
 import { ERDiagram } from '@/components/ERDiagram'
 import { TableBrowser } from '@/components/TableBrowser'
 import { SQLPlayground } from '@/components/SQLPlayground'
+import { useDemoStore } from '@/store/demo-store'
 
-type Tab = 'agent' | 'er' | 'browser' | 'playground'
+type Tab = 'benchmark' | 'er' | 'browser' | 'playground'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'agent', label: 'AI Agent', icon: <Bot size={12} /> },
+  { id: 'benchmark', label: 'Benchmark', icon: <Target size={12} /> },
   { id: 'er', label: 'ER Diagram', icon: <GitFork size={12} /> },
   { id: 'browser', label: 'Browse Data', icon: <Table2 size={12} /> },
   { id: 'playground', label: 'SQL', icon: <Code2 size={12} /> },
 ]
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>('agent')
+  const [activeTab, setActiveTab] = useState<Tab>('benchmark')
+  const { setDbSeeded, setTableStats, setSchemaGraph } = useDemoStore()
+
+  useEffect(() => {
+    fetch('/api/init')
+      .then(r => r.json())
+      .then((d: { seeded: boolean; tables: { name: string; rows: number }[] }) => {
+        setDbSeeded(true)
+        setTableStats(d.tables)
+        // Also load schema graph
+        fetch('/api/schema-graph')
+          .then(r => r.json())
+          .then(g => setSchemaGraph(g))
+          .catch(() => {})
+      })
+      .catch(() => {})
+  }, [setDbSeeded, setTableStats, setSchemaGraph])
 
   return (
     <div className="min-h-screen bg-[#08080d] text-white flex flex-col" style={{ fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace' }}>
@@ -36,7 +51,7 @@ export default function Home() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight">SQL Agent</h1>
-            <p className="text-[10px] text-gray-600">Self-debugging · GEPA prompt evolution</p>
+            <p className="text-[10px] text-gray-600">Self-debugging &middot; GEPA prompt evolution</p>
           </div>
         </div>
       </header>
@@ -45,12 +60,9 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* LEFT SIDEBAR */}
-        <aside className="w-64 shrink-0 border-r border-white/[0.06] flex flex-col overflow-y-auto bg-[#09090f]">
+        <aside className="w-60 shrink-0 border-r border-white/[0.06] flex flex-col overflow-y-auto bg-[#09090f]">
           <div className="flex-1 p-4 flex flex-col gap-5">
-            <SchemaPanel onTabChange={(t) => setActiveTab(t as Tab)} />
-            <div className="border-t border-white/[0.06] pt-4">
-              <PromptEvolution />
-            </div>
+            <DatasetPanel />
           </div>
         </aside>
 
@@ -85,18 +97,7 @@ export default function Home() {
                 transition={{ duration: 0.15 }}
                 className="absolute inset-0 flex flex-col overflow-hidden"
               >
-                {activeTab === 'agent' && (
-                  <>
-                    <div className="border-b border-white/[0.06] p-4 shrink-0">
-                      <QueryInput />
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                      <DebugLoop />
-                      <ResultsTable />
-                    </div>
-                  </>
-                )}
-
+                {activeTab === 'benchmark' && <BenchmarkPanel />}
                 {activeTab === 'er' && <ERDiagram />}
                 {activeTab === 'browser' && <TableBrowser />}
                 {activeTab === 'playground' && <SQLPlayground />}
@@ -108,12 +109,13 @@ export default function Home() {
         {/* RIGHT SIDEBAR */}
         <aside className="w-72 shrink-0 border-l border-white/[0.06] flex flex-col overflow-y-auto bg-[#09090f]">
           <div className="p-4 border-b border-white/[0.06]">
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+            <PromptEvolution />
+          </div>
+          <div className="p-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
               <Zap size={10} className="text-violet-400" />
               Learning Progress
             </div>
-          </div>
-          <div className="flex-1 p-4">
             <PerformanceGraph />
           </div>
         </aside>

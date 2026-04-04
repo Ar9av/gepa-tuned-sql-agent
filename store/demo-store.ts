@@ -1,5 +1,18 @@
 import { create } from 'zustand'
 import type { SchemaGraph } from '@/lib/db'
+import { GOLDEN_QUERIES } from '@/lib/golden-dataset'
+
+export interface BenchmarkQueryResult {
+  id: string
+  question: string
+  difficulty: 'hard' | 'expert'
+  status: 'pending' | 'running' | 'pass' | 'fail'
+  score: number | null
+  reason: string | null
+  sql: string | null
+  refRowCount: number | null
+  agentRowCount: number | null
+}
 
 export interface Attempt {
   number: number
@@ -57,6 +70,13 @@ interface DemoStore {
   selectedTable: string | null
   tableBrowserPage: number
 
+  // Benchmark
+  dbSeeded: boolean
+  benchmarkRunning: boolean
+  benchmarkResults: BenchmarkQueryResult[]
+  benchmarkScore: number | null
+  activeBenchmarkId: string | null
+
   // Actions
   setSchemaType: (t: string) => void
   appendSchemaChunk: (chunk: string) => void
@@ -88,6 +108,14 @@ interface DemoStore {
 
   setSelectedTable: (t: string | null) => void
   setTableBrowserPage: (n: number) => void
+
+  // Benchmark actions
+  setDbSeeded: (v: boolean) => void
+  setBenchmarkRunning: (v: boolean) => void
+  updateBenchmarkResult: (result: BenchmarkQueryResult) => void
+  setBenchmarkScore: (s: number) => void
+  setActiveBenchmarkId: (id: string | null) => void
+  resetBenchmark: () => void
 }
 
 export const useDemoStore = create<DemoStore>((set, get) => ({
@@ -117,6 +145,22 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   selectedTable: null,
   tableBrowserPage: 0,
+
+  dbSeeded: false,
+  benchmarkRunning: false,
+  benchmarkResults: GOLDEN_QUERIES.map(q => ({
+    id: q.id,
+    question: q.question,
+    difficulty: q.difficulty,
+    status: 'pending' as const,
+    score: null,
+    reason: null,
+    sql: null,
+    refRowCount: null,
+    agentRowCount: null,
+  })),
+  benchmarkScore: null,
+  activeBenchmarkId: null,
 
   setSchemaType: (t) => set({ schemaType: t, schemaScript: '', schemaGraph: null }),
   appendSchemaChunk: (chunk) => set((s) => ({ schemaScript: s.schemaScript + chunk })),
@@ -181,4 +225,28 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   setSelectedTable: (t) => set({ selectedTable: t, tableBrowserPage: 0 }),
   setTableBrowserPage: (n) => set({ tableBrowserPage: n }),
+
+  setDbSeeded: (v) => set({ dbSeeded: v }),
+  setBenchmarkRunning: (v) => set({ benchmarkRunning: v }),
+  updateBenchmarkResult: (result) => set((s) => ({
+    benchmarkResults: s.benchmarkResults.map(r => r.id === result.id ? result : r),
+  })),
+  setBenchmarkScore: (s) => set({ benchmarkScore: s }),
+  setActiveBenchmarkId: (id) => set({ activeBenchmarkId: id }),
+  resetBenchmark: () => set({
+    benchmarkRunning: false,
+    benchmarkScore: null,
+    activeBenchmarkId: null,
+    benchmarkResults: GOLDEN_QUERIES.map(q => ({
+      id: q.id,
+      question: q.question,
+      difficulty: q.difficulty,
+      status: 'pending' as const,
+      score: null,
+      reason: null,
+      sql: null,
+      refRowCount: null,
+      agentRowCount: null,
+    })),
+  }),
 }))

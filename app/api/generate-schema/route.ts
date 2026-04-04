@@ -5,6 +5,7 @@ import { resetOptimizer } from '@/lib/gepa'
 import { ECOMMERCE_DDL_PROMPT } from '@/lib/schemas/ecommerce'
 import { HOSPITAL_DDL_PROMPT } from '@/lib/schemas/hospital'
 import { BANKING_DDL_PROMPT } from '@/lib/schemas/banking'
+import { BENCHMARK_DDL_PROMPT } from '@/lib/schemas/benchmark'
 
 const DDL_PROMPTS: Record<string, string> = {
   ecommerce: ECOMMERCE_DDL_PROMPT,
@@ -43,13 +44,67 @@ function topoSortDDL(statements: string[]): string[] {
 
 export async function POST(req: NextRequest) {
   const { schemaType } = await req.json()
-  const prompt = DDL_PROMPTS[schemaType]
-  if (!prompt) return new Response('Unknown schema type', { status: 400 })
+
+  if (schemaType !== 'benchmark' && !DDL_PROMPTS[schemaType]) {
+    return new Response('Unknown schema type', { status: 400 })
+  }
 
   resetDb()
   resetOptimizer()
 
   const encoder = new TextEncoder()
+
+  // Benchmark schema: execute DDL directly — no LLM needed, schema is exact
+  if (schemaType === 'benchmark') {
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        try {
+          send({ type: 'status', message: 'Creating benchmark schema...' })
+
+          const statements = BENCHMARK_DDL_PROMPT
+            .split(/;\s*\n/)
+            .map(s => s.trim())
+            .filter(s => s.length > 3)
+
+          const db = getDb()
+          db.pragma('foreign_keys = OFF')
+
+          let executed = 0
+          for (const stmt of statements) {
+            try {
+              db.exec(stmt + (stmt.endsWith(';') ? '' : ';'))
+              executed++
+            } catch (e: unknown) {
+              send({ type: 'warning', message: `Skipped: ${(e as Error).message.slice(0, 80)}` })
+            }
+          }
+
+          db.pragma('foreign_keys = ON')
+
+          const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as { name: string }[])
+          const tableStats = tables.map(({ name }) => ({
+            name,
+            rows: (db.prepare(`SELECT COUNT(*) as n FROM "${name}"`).get() as { n: number }).n,
+          }))
+
+          const schemaGraph = getSchemaGraph()
+          send({ type: 'done', tableStats, statements: executed, schemaGraph })
+        } catch (err: unknown) {
+          send({ type: 'error', message: (err as Error).message })
+        } finally {
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(stream, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    })
+  }
+
+  const prompt = DDL_PROMPTS[schemaType]
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))

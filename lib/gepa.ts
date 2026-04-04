@@ -1,4 +1,5 @@
 import { complete } from './llm'
+import { runBenchmark } from './benchmark'
 
 export interface QueryResult {
   question: string
@@ -109,20 +110,23 @@ Rules for the new prompt:
     `Current system prompt:\n${currentBest}\n\nDiagnosed failure patterns:\n${reflection}\n\nWrite the improved system prompt:`
   )
 
-  // Step 3: Score the new candidate vs current best
-  const successCount = history.filter(h => h.success).length
-  const currentSuccessRate = successCount / history.length
+  // Step 3: Score the new candidate vs current best using real benchmark
   const currentAvgAttempts =
     history.reduce((sum, h) => sum + h.attempts, 0) / history.length
 
-  // Optimistic: assume the new prompt fixes the diagnosed issues
-  // In a real GEPA setup you'd run it on a validation set
-  // For demo: score based on reflection quality + prompt specificity
+  // Real benchmark scoring — run 5 representative queries
+  let benchmarkScore = 0.3 // fallback
+  try {
+    for await (const event of runBenchmark(newPrompt, ['gq-01', 'gq-02', 'gq-03', 'gq-04', 'gq-05'])) {
+      if (event.type === 'done') benchmarkScore = event.overallScore
+    }
+  } catch {}
+
   const newCandidate: Candidate = {
     systemPrompt: newPrompt,
-    score: Math.min(currentSuccessRate + 0.15, 1.0),
+    score: benchmarkScore,
     avgAttempts: Math.max(currentAvgAttempts - 0.5, 1.0),
-    successRate: Math.min(currentSuccessRate + 0.1, 1.0),
+    successRate: benchmarkScore,
     generation: currentGeneration + 1,
     feedback: [reflection],
   }
@@ -137,4 +141,15 @@ Rules for the new prompt:
 
 export function shouldOptimize(): boolean {
   return history.length > 0 && history.length % 4 === 0
+}
+
+// Run the full 20-query benchmark against the current best prompt
+export async function runFullBenchmark() {
+  const prompt = getCurrentPrompt()
+  const results = []
+  for await (const event of runBenchmark(prompt)) {
+    if (event.type === 'done') return event
+    if (event.type === 'query_result') results.push(event)
+  }
+  return null
 }

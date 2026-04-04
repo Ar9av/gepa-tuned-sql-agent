@@ -9,6 +9,7 @@ const SCHEMAS = [
   { id: 'ecommerce', label: 'E-commerce', icon: '🛒', desc: 'customers · orders · products · reviews' },
   { id: 'hospital', label: 'Hospital', icon: '🏥', desc: 'patients · visits · diagnoses · labs' },
   { id: 'banking', label: 'Banking', icon: '🏦', desc: 'accounts · transactions · loans · fraud' },
+  { id: 'benchmark', label: 'Benchmark', icon: '🎯', desc: 'marketplace · vendors · inventory · analytics' },
 ]
 
 const DATA_SIZES = [

@@ -3,7 +3,7 @@
 A live demo of two research ideas running together in one Next.js app:
 
 1. **Self-Refine / Self-Debug** — the agent critiques and fixes its own SQL errors in a loop, no human in the loop
-2. **GEPA (Genetic-Pareto Evolutionary Prompt Optimization)** — after every 4 queries, an LLM reflects on failure patterns and evolves the system prompt
+2. **GEPA (Genetic-Pareto Evolutionary Prompt Optimization)** — after every 4 queries, an LLM reflects on failure patterns and evolves the system prompt, scored against a **golden benchmark dataset**
 
 The result: the agent gets measurably faster and more accurate over time — **without retraining or fine-tuning the model**. Pure prompt + context engineering.
 
@@ -12,20 +12,29 @@ The result: the agent gets measurably faster and more accurate over time — **w
 ## Demo Flow
 
 ```
-1. Pick a schema (E-commerce / Hospital / Banking)
-   → LLM writes the CREATE TABLE script live, streams to UI
+1. App loads → benchmark dataset auto-seeded in SQLite (no setup required)
+   → 16-table Marketplace Analytics schema (vendors, products, orders,
+     categories hierarchy, inventory logs, promotions, referral chains)
+   → ~1,000 rows of realistic data, pre-populated deterministically
 
-2. Pick data size (500 / 2K / 10K rows) → Generate Data
-   → LLM writes a SQLite recursive CTE population script
-   → Executes live, fills all tables
+2. Benchmark tab shows 20 hard analytical questions (designed by Claude Opus)
+   → Click "Run All" to evaluate the SQL agent on all 20 questions
+   → Each question runs: generate SQL → execute → compare vs reference SQL
 
-3. Ask hard natural-language questions
-   → Watch: generate SQL → execute → diagnose error → retry loop
-   → After 4 queries, GEPA fires: reflects on failures, mutates the prompt
+3. Scoring is ground-truth based:
+   → Reference SQL is run first to establish the expected output
+   → Agent SQL is compared: row count, column match, value overlap
+   → Score = 70% reference comparison + 30% structural validation
+   → "reference: 12 rows  agent: 0 rows" shown per query
 
-4. Run 10+ queries
-   → Performance graph: attempts-per-query trends down
-   → System prompt evolves — Gen 0 (5 lines) → Gen 2 (specific earned rules)
+4. After every 4 queries, GEPA fires:
+   → Reflects on failures, generates improved system prompt
+   → Mini-benchmark (5 queries) scores the new prompt candidate — real score, not a guess
+   → Prompt evolution panel shows Gen 0 → Gen N with what changed and why
+
+5. Re-run benchmark → score goes up
+   → Performance graph shows attempts-per-query trending down
+   → System prompt evolves from 5 generic lines to specific earned SQLite rules
 ```
 
 ---
@@ -43,13 +52,15 @@ Create `.env.local`:
 ```env
 AZURE_API_KEY=your_key_here
 AZURE_BASE_URL=https://your-endpoint.services.ai.azure.com/models
-AZURE_MODEL=grok-4-1-fast-reasoning
+AZURE_MODEL=gpt-5.4-nano
 ```
 
 ```bash
 npm run dev
 # open http://localhost:3000
 ```
+
+The benchmark dataset seeds automatically on first load. No schema generation step, no data population step — the demo is ready immediately.
 
 Uses **SQLite in-process** via `better-sqlite3` — no Docker, no external database. One command runs everything.
 
@@ -59,30 +70,89 @@ Uses **SQLite in-process** via `better-sqlite3` — no Docker, no external datab
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Next.js 16 (App Router)               │
+│                    Next.js (App Router)                   │
 │                                                          │
-│  Left sidebar          Centre (tabs)       Right         │
-│  ─────────────         ─────────────       ─────         │
-│  Schema picker    →    AI Agent tab        GEPA          │
-│  Data generator        ER Diagram tab      Progress      │
-│  System Prompt         Table Browser tab   Graph         │
-│  (evolving live)       SQL Playground tab               │
+│  Left sidebar        Centre (tabs)         Right         │
+│  ─────────────       ─────────────         ─────         │
+│  Dataset info   →    Benchmark tab   →     GEPA          │
+│  Table stats         ER Diagram tab        Prompt        │
+│  (pre-seeded)        Table Browser tab     Evolution     │
+│                      SQL Playground tab    Graph         │
 └──────────────────────────────┬──────────────────────────┘
                                │ SSE streaming
 ┌──────────────────────────────▼──────────────────────────┐
 │                    API Routes (Node.js)                   │
 │                                                          │
-│  /api/generate-schema   DDL-only, FK-safe topo sort      │
-│  /api/populate-data     LLM writes recursive CTEs        │
-│  /api/execute-query     self-debug loop + GEPA trigger   │
-│  /api/schema-graph      PRAGMA-based ER extraction       │
-│  /api/table-data        paginated row fetch              │
-│  /api/execute-sql       raw SQL playground               │
+│  /api/init           seed benchmark DB on first load     │
+│  /api/benchmark      run golden queries, stream results  │
+│  /api/execute-query  self-debug loop + GEPA trigger      │
+│  /api/schema-graph   PRAGMA-based ER extraction          │
+│  /api/table-data     paginated row fetch                 │
+│  /api/execute-sql    raw SQL playground                  │
 └──────────────────────────────┬──────────────────────────┘
                                │
                     SQLite (better-sqlite3)
                     Azure AI Foundry (OpenAI-compatible)
 ```
+
+### Benchmark Dataset (`lib/seed.ts` + `lib/schemas/benchmark.ts`)
+
+16-table Marketplace Analytics schema, seeded deterministically (no LLM):
+
+| Table | Description |
+|---|---|
+| `customers` | Self-referential (referral chains) |
+| `customer_addresses` | Multi-address per customer |
+| `vendors` | With commission rates |
+| `vendor_payouts` | Quarterly payout tracking |
+| `categories` | 3-level hierarchy (self-referential) |
+| `products` | With cost/price for margin queries |
+| `product_images` | Many-per-product |
+| `tags` + `product_tags` | Many-to-many |
+| `orders` | With status lifecycle |
+| `order_items` | Per-product line items |
+| `order_events` | Time-series event log (created→shipped→delivered) |
+| `reviews` | Verified purchase flag |
+| `promotions` | Discount campaigns |
+| `promotion_redemptions` | Usage tracking |
+| `inventory_logs` | Time-series stock changes |
+
+### Golden Dataset (`lib/golden-dataset.ts`)
+
+20 benchmark questions designed by Claude Opus, ranging from `hard` to `expert`:
+
+| Concept | Example queries |
+|---|---|
+| Window functions + LAG | Week-over-week revenue change |
+| Recursive CTEs | Category path building, referral chain depth |
+| Gaps-and-islands | Customers with 3+ consecutive months of rising spend |
+| Self-join | Most frequent product-pair co-purchases |
+| Correlated subqueries | Products above category-average return rate |
+| Cohort analysis | LTV by signup month, retention matrix |
+| Percentile estimation | p50/p90 fulfillment time per vendor |
+| NTILE scoring | RFM customer scoring model |
+| Set operations | Active products never ordered |
+| Multi-level aggregation | Revenue rollup by category tree |
+
+Each query has a `referenceSQL` (correct answer) and a `validate()` function. The benchmark runs both and compares outputs.
+
+### Scoring Algorithm (`lib/benchmark.ts`)
+
+```
+For each golden query:
+  1. Run referenceSQL → refRows (ground truth)
+  2. Generate agent SQL via LLM
+  3. Execute agent SQL → agentRows
+  4. Compare:
+       count score    = min/max ratio of row counts
+       column score   = fuzzy match of column names
+       value score    = overlap of first-column values
+       reference score = 0.4 * count + 0.3 * columns + 0.3 * values
+  5. Final = reference_score * 0.7 + structural_validate * 0.3
+  6. Pass threshold: score >= 0.7
+```
+
+If reference returns rows but agent returns 0 → score 0.0 (hard fail, no lenient "zero rows valid").
 
 ### Self-Debug Loop (`lib/sql-agent.ts`)
 
@@ -108,8 +178,10 @@ Fires every 4 queries. Three steps:
              → adds specific SQLite rules earned by real failures
              → does NOT add generic fluff
 
-3. SELECT    New candidate joins Pareto front (top 3 kept by score)
-             Best candidate becomes the active system prompt going forward
+3. EVALUATE  Mini-benchmark: run gq-01 through gq-05 with the new prompt
+             → real score replaces the old optimistic heuristic
+             → new candidate joins Pareto front (top 3 kept by score)
+             → best candidate becomes active system prompt
 ```
 
 ---
@@ -166,43 +238,15 @@ Conceptual lineage: Q-Learning → Actor-Critic → PPO/GRPO → GEPA. Each step
 
 ---
 
-## Novel Extension Ideas
-
-### Drop-in (low effort)
-
-| Idea | What it demonstrates |
-|---|---|
-| **MCP Tool Description Optimizer** | Apply GEPA to the text descriptions of agent tools. The LLM reads tool descriptions to decide how to call them — GEPA improves those descriptions based on call success rate. GEPA already has a native MCP adapter in Python. |
-| **Multi-Schema Transfer** | Train GEPA on E-commerce for 20 queries, then load the Gen-3 prompt as seed for Banking. Does it learn general SQL or schema-specific tricks? Quantifies transferability. |
-| **Adversarial Query Generator** | A second LLM generates queries designed to break the current system prompt. GEPA co-evolves against the adversary. Automated red-teaming at zero cost. |
-
-### Medium effort
-
-| Idea | What it demonstrates |
-|---|---|
-| **Prompt Archaeology Timeline** | Visualize each rule added to the system prompt: which failure triggered it, and whether queries that triggered it subsequently succeeded. Like git blame for the prompt. |
-| **Cross-Session Transfer** | "Export optimized prompt" → saves Gen-N prompt to clipboard/file. "Import prompt" → loads it as seed for a fresh session. Demonstrates knowledge transfer without retraining. |
-| **Pareto Front Scatter Plot** | Each GEPA candidate plotted on 2D (x = success rate, y = avg attempts). Show the Pareto frontier updating live. Makes the multi-objective optimization visible. |
-
-### Research-grade
-
-| Idea | What it demonstrates |
-|---|---|
-| **Hard vs Soft Signal A/B** | Toggle between SQL execution feedback (ground truth) and LLM-as-judge feedback. Compare convergence on the same query set. Quantifies the value of hard signals. |
-| **Multi-Objective GEPA** | Two signals: accuracy + query execution time (ms). Pareto front shows accuracy vs speed tradeoffs — useful for BI dashboards where some queries can be approximate. |
-| **GEPA vs Manual Prompt Engineering** | Add a "Manual" mode where a human edits the prompt directly. Compare: who reaches higher success rate faster after 20 queries? |
-
----
-
 ## How to Demo This Effectively
 
-1. **Pre-generate data before the demo** — 10K rows takes ~45s. Do it before presenting.
-2. **Use Banking schema** — richest ER diagram (8 tables, lots of FK lines), hardest query patterns (fraud, loan defaults, running balances).
-3. **Use the pre-built challenging queries** — designed to fail on attempt 1 so you can show the full debug loop.
-4. **Run 8–10 queries before explaining GEPA** — let the graph build up, then point to where the optimization fired.
-5. **Open System Prompt before and after GEPA** — Gen 0 is 5 generic lines; Gen 2 has specific SQLite rules earned from real failures. The contrast is the "wow" moment.
-6. **Re-run a query that previously took 3 attempts** — at Gen 2 it should succeed in 1. Show this side-by-side.
-7. **Switch to ER Diagram and hover tables** — FK lines highlight, showing the schema complexity that makes these queries hard to write.
+1. **Open the app** — dataset loads instantly, no setup. Go straight to the Benchmark tab.
+2. **Run All** — watch all 20 queries execute with live pass/fail status. Note the initial score (typically 30–50%).
+3. **Expand a failing query** — show `reference: 8 rows  agent: 0 rows`. Explain why the agent's SQL is wrong (e.g., invalid SQLite date syntax).
+4. **Ask a few free-form questions** in the AI Agent tab — let the debug loop run, show retries.
+5. **Wait for GEPA to fire** (every 4 queries) — watch the Prompt Evolution panel update. Gen 0 is 5 generic lines; Gen 2 has specific SQLite rules.
+6. **Re-run benchmark** — score goes up. Show the diff: which queries flipped from fail to pass.
+7. **Open ER Diagram** — show the 16-table schema complexity that makes these queries hard.
 
 ---
 
@@ -210,7 +254,7 @@ Conceptual lineage: Q-Learning → Actor-Critic → PPO/GRPO → GEPA. Each step
 
 | | |
 |---|---|
-| Framework | Next.js 16, TypeScript, App Router |
+| Framework | Next.js, TypeScript, App Router |
 | Styling | Tailwind CSS |
 | Animations | Framer Motion |
 | Charts | Recharts |
@@ -218,50 +262,3 @@ Conceptual lineage: Q-Learning → Actor-Critic → PPO/GRPO → GEPA. Each step
 | LLM | Azure AI Foundry (OpenAI-compatible SDK) |
 | State | Zustand |
 | Icons | Lucide React |
-
----
-
-## TODO
-
-### 🐛 Bugs
-
-- [x] **UI freeze on `agent_error`** — event not handled in switch → `isRunning` stuck true forever → fixed
-- [x] **UI freeze on malformed SSE** — `JSON.parse` had no try-catch → fixed
-- [x] **Top-level `runQuery` try-catch** — network failures now call `finishQuery(false)` → fixed
-- [ ] **GEPA fires on query count only** — currently triggers at 4/8/12 regardless. Should also trigger on consecutive failures (e.g. 3 in a row). Change `shouldOptimize()` in `lib/gepa.ts` to check failure streaks.
-- [ ] **`useLayoutEffect` imported but unused** in `ERDiagram.tsx` — causes React warning in dev
-- [ ] **Duplicate `Database` import** at bottom of `ERDiagram.tsx` — should be at top with other imports
-
-### 🔴 UX — Makes the demo tell the research story
-
-- [ ] **GEPA Live Diff panel** — when optimization fires, show a line-by-line diff of the prompt (Gen N-1 vs Gen N). Red = removed, green = added. Currently just a text banner — the diff IS the demo moment.
-- [ ] **Query history list** — scrollable list of all past queries with attempt count badge (green=1, yellow=2, red=3+) and success/fail icon. Currently only the active query is visible.
-- [ ] **Persistent status bar** — thin bar under header always showing: `Gen 2 · 12 queries · 83% success · avg 1.8 attempts`. Currently hidden in the right panel.
-- [ ] **Auto-expand System Prompt on GEPA fire** — the most important panel is collapsed by default. Should open automatically when a new optimization completes.
-- [ ] **Reset Demo button** — wipes DB + GEPA history + query history + returns to Gen 0. Essential for re-running the demo.
-- [ ] **"0 rows — click Generate Data" hint** — after DDL, table chips show "0" with no guidance. Add an inline nudge pointing to the data size picker.
-
-### 🟡 Layout & Visual Polish
-
-- [ ] **Widen centre panel** — left sidebar 256px + right 288px leaves centre too narrow on 1440px screens. Reduce left to 220px, make right panel collapsible.
-- [ ] **Horizontal scroll for suggestion chips** — currently wraps to multiple lines. Use `overflow-x-auto flex-nowrap` scroll container.
-- [ ] **ER diagram zoom controls** — `+` / `−` buttons and scroll-to-zoom. With 8 tables the diagram can overflow the viewport.
-- [ ] **Attempt timeline connector** — draw a vertical line connecting attempt cards so it reads as a flow. Add an arrow between error and the next generating card.
-- [ ] **Copy button on attempt SQL cards** in `DebugLoop.tsx`
-- [ ] **Empty state stat cards** — the three stats (queries/attempts/success) should show `--` placeholders before any queries run, rather than not rendering.
-
-### 🟢 Features
-
-- [ ] **SQL syntax highlighting in Playground** — replace plain textarea with `react-simple-code-editor` + prism for SQL
-- [ ] **Table browser column filter** — text input that filters rows client-side
-- [ ] **Download CSV** — export button in Table Browser and ResultsTable
-- [ ] **Animated graph data points** — animate the new dot entering the chart when a query completes
-- [ ] **GEPA candidate viewer** — show all 3 Pareto front candidates simultaneously so you can see the diversity GEPA maintains
-
-### 🔬 Novel Ideas to Implement
-
-- [ ] **MCP Tool Description Optimizer tab** — 5th tab where you define agent tools and GEPA optimizes their descriptions based on call success rate
-- [ ] **Challenge Mode** — second LLM generates adversarial queries to break the current prompt; GEPA co-evolves
-- [ ] **Prompt Archaeology view** — timeline of each rule added, which failure triggered it, whether it helped
-- [ ] **Cross-session prompt export/import** — save Gen-N prompt, load as seed for fresh session
-- [ ] **Hard vs Soft signal A/B toggle** — compare execution feedback vs LLM-as-judge convergence on the same query set
