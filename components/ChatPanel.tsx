@@ -319,7 +319,7 @@ export function ChatPanel() {
     const msg = chatMessages.find(m => m.id === msgId)
     if (!msg) return
 
-    updateChatMessage(msgId, { feedbackSending: true })
+    updateChatMessage(msgId, { feedbackSending: true, feedback: correct ? 'correct' : 'wrong' })
 
     try {
       const res = await fetch('/api/feedback', {
@@ -333,37 +333,78 @@ export function ChatPanel() {
         }),
       })
 
-      const data = (await res.json()) as {
-        recorded: boolean
-        optimized: boolean
-        gepaRun?: {
-          generation: number
-          score: number
-          reflection: string
-          newPrompt: string
+      // Response might be JSON (no optimization) or SSE stream (optimization running)
+      const contentType = res.headers.get('content-type') ?? ''
+
+      if (contentType.includes('text/event-stream') && res.body) {
+        // SSE stream — GEPA is running, show progress
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+
+              if (event.type === 'gepa_status') {
+                setGepaToast(`⚡ GEPA: ${event.message as string}`)
+              }
+
+              if (event.type === 'done' && event.optimized) {
+                const gepaRun = event.gepaRun as {
+                  generation: number; score: number; reflection: string
+                  newPrompt: string; previousPrompt?: string; diffSummary?: string
+                }
+                const run: GepaRun = {
+                  generation: gepaRun.generation,
+                  score: gepaRun.score,
+                  label: `Gen ${gepaRun.generation}`,
+                  timestamp: Date.now(),
+                  triggeredBy: 'feedback',
+                }
+                addGepaRun(run)
+                setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt)
+
+                // Show diff summary as a toast/banner
+                const summary = gepaRun.diffSummary ?? gepaRun.reflection
+                setGepaToast(`⚡ Gen ${gepaRun.generation} (score: ${Math.round(gepaRun.score * 100)}%) — ${summary}`)
+                setTimeout(() => setGepaToast(null), 10000)
+              }
+
+              if (event.type === 'done' && !event.optimized) {
+                setGepaToast(null)
+              }
+            } catch {}
+          }
+        }
+      } else {
+        // Plain JSON response — no optimization triggered
+        const data = await res.json()
+        if (data.optimized && data.gepaRun) {
+          const run: GepaRun = {
+            generation: data.gepaRun.generation,
+            score: data.gepaRun.score,
+            label: `Gen ${data.gepaRun.generation}`,
+            timestamp: Date.now(),
+            triggeredBy: 'feedback',
+          }
+          addGepaRun(run)
+          setOptimizationDone(data.gepaRun.reflection, data.gepaRun.newPrompt)
         }
       }
 
-      updateChatMessage(msgId, {
-        feedback: correct ? 'correct' : 'wrong',
-        feedbackSending: false,
-      })
-
-      if (data.optimized && data.gepaRun) {
-        const run: GepaRun = {
-          generation: data.gepaRun.generation,
-          score: data.gepaRun.score,
-          label: `Gen ${data.gepaRun.generation}`,
-          timestamp: Date.now(),
-          triggeredBy: 'feedback',
-        }
-        addGepaRun(run)
-        setOptimizationDone(data.gepaRun.reflection, data.gepaRun.newPrompt)
-        setGepaToast(`GEPA optimized prompt → Gen ${data.gepaRun.generation}`)
-        setTimeout(() => setGepaToast(null), 4000)
-      }
+      updateChatMessage(msgId, { feedbackSending: false })
     } catch {
       updateChatMessage(msgId, { feedbackSending: false })
+      setGepaToast(null)
     }
   }, [chatMessages, updateChatMessage, addGepaRun, setOptimizationDone])
 
@@ -387,10 +428,21 @@ export function ChatPanel() {
 
   return (
     <div className="flex flex-col h-full relative">
-      {/* GEPA toast */}
+      {/* GEPA banner */}
       {gepaToast && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-violet-600/90 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg shadow-violet-500/20 backdrop-blur-sm">
-          {gepaToast}
+        <div className="border-b border-violet-500/20 bg-violet-950/40 px-4 py-2.5 flex items-start gap-3 shrink-0">
+          <div className="mt-0.5 shrink-0">
+            {gepaToast.includes('Analyzing') || gepaToast.includes('Scoring') || gepaToast.includes('Summarizing') || gepaToast.includes('generated')
+              ? <Loader2 size={12} className="animate-spin text-violet-400" />
+              : <CheckCircle2 size={12} className="text-violet-400" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] font-semibold text-violet-300 uppercase tracking-wider mb-0.5">GEPA Optimization</div>
+            <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{gepaToast.replace(/^⚡\s*/, '')}</div>
+          </div>
+          <button onClick={() => setGepaToast(null)} className="text-gray-600 hover:text-gray-400 transition-colors shrink-0 mt-0.5">
+            <XCircle size={12} />
+          </button>
         </div>
       )}
 

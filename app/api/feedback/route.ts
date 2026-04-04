@@ -1,9 +1,11 @@
 import { NextRequest } from 'next/server'
-import { recordResult, shouldOptimize, runOptimizationCycle, getParetoFront } from '@/lib/gepa'
+import { recordResult, shouldOptimize, runOptimizationCycle, getParetoFront, getCurrentPrompt } from '@/lib/gepa'
 import { runBenchmark } from '@/lib/benchmark'
+import { complete } from '@/lib/llm'
 
 // Module-level wrong streak tracker
 let wrongStreak = 0
+let previousPrompt = ''
 
 export async function POST(req: NextRequest) {
   const { correct, question, sql, rowCount } = (await req.json()) as {
@@ -39,40 +41,85 @@ export async function POST(req: NextRequest) {
   // Reset wrong streak
   if (wrongStreak >= 3) wrongStreak = 0
 
-  const optimizationResult = await runOptimizationCycle()
-  if (!optimizationResult) {
-    return Response.json({ recorded: true, optimized: false })
-  }
+  // Save the old prompt for diff summary
+  previousPrompt = getCurrentPrompt()
 
-  // Run mini-benchmark to get real score
-  let score = 0
-  let generation = 1
-  const front = getParetoFront()
-  if (front.length > 0) {
-    generation = Math.max(...front.map(c => c.generation))
-    score = front.reduce((a, b) => (a.score > b.score ? a : b)).score
-  }
+  // Stream GEPA progress as SSE
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
 
-  try {
-    for await (const event of runBenchmark(optimizationResult.newPrompt, ['gq-01', 'gq-02', 'gq-03', 'gq-04', 'gq-05'])) {
-      if (event.type === 'done') {
-        score = event.overallScore
+      try {
+        // Step 1: Reflect
+        send({ type: 'gepa_status', step: 'reflecting', message: 'Analyzing failure patterns...' })
+        const optimizationResult = await runOptimizationCycle()
+
+        if (!optimizationResult) {
+          send({ type: 'done', recorded: true, optimized: false })
+          controller.close()
+          return
+        }
+
+        send({ type: 'gepa_status', step: 'mutated', message: 'New prompt generated' })
+
+        // Step 2: Benchmark
+        send({ type: 'gepa_status', step: 'benchmarking', message: 'Scoring new prompt against benchmark...' })
+
+        let score = 0
+        let generation = 1
+        const front = getParetoFront()
+        if (front.length > 0) {
+          generation = Math.max(...front.map(c => c.generation))
+          score = front.reduce((a, b) => (a.score > b.score ? a : b)).score
+        }
+
+        try {
+          for await (const event of runBenchmark(optimizationResult.newPrompt, ['gq-01', 'gq-02', 'gq-03', 'gq-04', 'gq-05'])) {
+            if (event.type === 'done') {
+              score = event.overallScore
+            }
+          }
+        } catch {
+          // use fallback score
+        }
+
+        // Step 3: Generate diff summary
+        send({ type: 'gepa_status', step: 'summarizing', message: 'Summarizing changes...' })
+
+        const diffSummary = await complete(
+          `You compare two system prompts for a SQL generation agent. Describe what changed in 2-3 concise bullet points. Focus on what specific rules were added or removed, and why (based on the reflection). Use past tense. Do NOT reproduce the full prompts.`,
+          `BEFORE prompt:\n${previousPrompt}\n\n---\n\nAFTER prompt:\n${optimizationResult.newPrompt}\n\n---\n\nReflection that drove the change:\n${optimizationResult.reflection}`
+        )
+
+        void rowCount // acknowledged
+
+        send({
+          type: 'done',
+          recorded: true,
+          optimized: true,
+          gepaRun: {
+            generation,
+            score,
+            reflection: optimizationResult.reflection,
+            newPrompt: optimizationResult.newPrompt,
+            previousPrompt,
+            diffSummary,
+          },
+        })
+      } catch (err: unknown) {
+        send({ type: 'error', message: (err as Error).message })
+      } finally {
+        controller.close()
       }
-    }
-  } catch {
-    // use fallback score from pareto front
-  }
+    },
+  })
 
-  void rowCount // acknowledged
-
-  return Response.json({
-    recorded: true,
-    optimized: true,
-    gepaRun: {
-      generation,
-      score,
-      reflection: optimizationResult.reflection,
-      newPrompt: optimizationResult.newPrompt,
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
     },
   })
 }
