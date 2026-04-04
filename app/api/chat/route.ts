@@ -121,19 +121,27 @@ export async function POST(req: NextRequest) {
           const result = await executeQueryAsync(sql)
 
           if (!result.error) {
-            send({
-              type: 'success',
-              sql,
-              rows: result.rows,
-              rowCount: result.rowCount,
-              attempt,
-            })
-            controller.close()
-            return
+            // Check for suspicious 0-row results that likely indicate an overly restrictive filter
+            const expectsData = /\b(top|best|most|list|show|find|get|highest|lowest|recent|latest|all)\b/i.test(question)
+            if (result.rows.length === 0 && expectsData && attempt < MAX_ATTEMPTS) {
+              // Treat as a soft failure — retry with a broadened hint
+              lastError = 'The query returned 0 rows. The date filter might be too restrictive — try broadening it (e.g., last 7 days, last 30 days, or remove date filter). Also ensure timezone handling is correct (the data might use a different timezone).'
+              send({ type: 'error', error: lastError, attempt })
+            } else {
+              send({
+                type: 'success',
+                sql,
+                rows: result.rows,
+                rowCount: result.rowCount,
+                attempt,
+              })
+              controller.close()
+              return
+            }
+          } else {
+            lastError = result.error
+            send({ type: 'error', error: result.error, attempt })
           }
-
-          lastError = result.error
-          send({ type: 'error', error: result.error, attempt })
 
           if (attempt < MAX_ATTEMPTS) {
             // Stream diagnosis

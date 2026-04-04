@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useDemoStore } from '@/store/demo-store'
-import { ChevronLeft, ChevronRight, Table2, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Table2, Loader2, Search } from 'lucide-react'
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 10
 
 interface TableData {
   rows: Record<string, unknown>[]
@@ -16,12 +16,18 @@ export function TableBrowser() {
   const { tableStats, selectedTable, tableBrowserPage, setSelectedTable, setTableBrowserPage } = useDemoStore()
   const [data, setData] = useState<TableData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState('')
 
   const tables = tableStats.filter(t => !t.name.startsWith('sqlite_'))
 
   useEffect(() => {
     if (!selectedTable && tables.length > 0) setSelectedTable(tables[0].name)
   }, [tables.length])
+
+  // Reset filter when table changes
+  useEffect(() => {
+    setFilter('')
+  }, [selectedTable])
 
   useEffect(() => {
     if (!selectedTable) return
@@ -40,6 +46,17 @@ export function TableBrowser() {
       </div>
     )
   }
+
+  const filteredRows = data
+    ? filter.trim()
+      ? data.rows.filter(row =>
+          data.columns.some(col => {
+            const val = row[col]
+            return val != null && String(val).toLowerCase().includes(filter.toLowerCase())
+          })
+        )
+      : data.rows
+    : []
 
   const totalPages = data ? Math.ceil(data.totalCount / PAGE_SIZE) : 0
   const startRow = tableBrowserPage * PAGE_SIZE + 1
@@ -68,11 +85,21 @@ export function TableBrowser() {
             {data && <span className="text-xs text-gray-600">{data.totalCount.toLocaleString()} rows</span>}
           </div>
           {loading && <Loader2 size={13} className="text-violet-400 animate-spin" />}
+          <div className="relative">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-600" />
+            <input
+              type="text"
+              placeholder="Filter rows..."
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              className="pl-7 pr-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-violet-500/50 w-48"
+            />
+          </div>
         </div>
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          {data && data.rows.length > 0 ? (
+          {data && filteredRows.length > 0 ? (
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-[#0a0a0f]">
@@ -84,7 +111,7 @@ export function TableBrowser() {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row, i) => (
+                {filteredRows.map((row, i) => (
                   <tr key={i} className={`border-b border-white/5 hover:bg-white/3 transition-colors ${i % 2 === 0 ? '' : 'bg-white/[0.01]'}`}>
                     {data.columns.map(col => (
                       <td key={col} className="px-3 py-1.5 font-mono whitespace-nowrap max-w-48">
