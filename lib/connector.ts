@@ -55,6 +55,12 @@ export async function connectDB(config: DBConfig): Promise<{ ok: boolean; error?
     }
 
     _knex = knex(knexConfig)
+
+    // Catch pool errors so they don't crash the process
+    _knex.client.pool?.on?.('error', (err: Error) => {
+      console.error('[knex pool error]', err.message)
+    })
+
     // Test connection
     await _knex.raw('SELECT 1')
     _config = config
