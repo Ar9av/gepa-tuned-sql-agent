@@ -43,7 +43,10 @@ export async function connectDB(config: DBConfig): Promise<{ ok: boolean; error?
     } else if (config.type === 'postgresql') {
       knexConfig = {
         client: 'pg',
-        connection: config.connectionString,
+        connection: {
+          connectionString: config.connectionString,
+          ssl: { rejectUnauthorized: false },
+        },
         pool: { min: 0, max: 3 },
       }
     } else {
