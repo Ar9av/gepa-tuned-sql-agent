@@ -1,6 +1,10 @@
 import knex, { Knex } from 'knex'
+import path from 'path'
+import os from 'os'
 
 export type DBType = 'sqlite' | 'postgresql' | 'mysql'
+
+const BENCHMARK_DB_PATH = path.join(os.tmpdir(), 'sql-agent-demo.db')
 
 export interface DBConfig {
   type: DBType
@@ -33,7 +37,7 @@ export async function connectDB(config: DBConfig): Promise<{ ok: boolean; error?
     if (config.type === 'sqlite') {
       knexConfig = {
         client: 'better-sqlite3',
-        connection: { filename: config.filename ?? ':memory:' },
+        connection: { filename: config.filename || BENCHMARK_DB_PATH },
         useNullAsDefault: true,
       }
     } else if (config.type === 'postgresql') {

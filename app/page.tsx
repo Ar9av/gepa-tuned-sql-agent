@@ -48,6 +48,7 @@ export default function Home() {
       .then((d: { seeded: boolean; tables: { name: string; rows: number }[] }) => {
         setDbSeeded(true)
         setTableStats(d.tables)
+        setActiveConnection({ type: 'sqlite', filename: '', name: 'Benchmark DB' })
         // Also load schema graph
         fetch('/api/schema-graph')
           .then(r => r.json())

@@ -62,7 +62,19 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
 
   useEffect(() => {
     if (connectModalOpen) {
-      setSaved(loadSaved())
+      const existing = loadSaved()
+      // Always include benchmark DB as a default option
+      const hasBenchmark = existing.some(c => c.id === 'benchmark-db')
+      if (!hasBenchmark) {
+        existing.unshift({
+          id: 'benchmark-db',
+          name: 'Benchmark DB',
+          type: 'sqlite',
+          connectionString: '',
+          filename: '',  // empty = uses default benchmark path
+        })
+      }
+      setSaved(existing)
       setShowNewForm(false)
       setTestStatus(null)
       setTestError('')
