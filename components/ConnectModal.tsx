@@ -7,28 +7,15 @@ import type { DBType, DBConfig } from '@/lib/connector'
 import type { SchemaGraph } from '@/lib/db'
 import type { TableStat } from '@/store/demo-store'
 
-interface SavedConnection {
+// This matches the server-side StoredConnection shape (minus credentials)
+interface SavedConnectionView {
   id: string
   name: string
   type: DBType
-  connectionString: string
-  filename: string
+  filename?: string
   lastConnected?: number
-  savedPrompt?: string  // GEPA-evolved prompt for this DB
-}
-
-const LS_KEY = 'sql-agent-connections'
-
-function loadSaved(): SavedConnection[] {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]')
-  } catch {
-    return []
-  }
-}
-
-function saveSaved(connections: SavedConnection[]) {
-  localStorage.setItem(LS_KEY, JSON.stringify(connections))
+  savedPrompt?: string
+  // connectionString is NOT sent to the browser
 }
 
 const TYPE_LABELS: Record<DBType, string> = {
@@ -50,7 +37,7 @@ interface ConnectModalProps {
 export function ConnectModal({ onConnect }: ConnectModalProps) {
   const { connectModalOpen, setConnectModalOpen, setConnectionStatus } = useDemoStore()
 
-  const [saved, setSaved] = useState<SavedConnection[]>([])
+  const [saved, setSaved] = useState<SavedConnectionView[]>([])
   const [showNewForm, setShowNewForm] = useState(false)
   const [name, setName] = useState('')
   const [type, setType] = useState<DBType>('sqlite')
@@ -58,24 +45,23 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
   const [filename, setFilename] = useState('')
   const [testStatus, setTestStatus] = useState<null | 'testing' | 'ok' | 'error'>(null)
   const [testError, setTestError] = useState('')
-  const [connecting, setConnecting] = useState<string | null>(null) // id or 'new'
+  const [connecting, setConnecting] = useState<string | null>(null)
   const [connectError, setConnectError] = useState('')
 
   useEffect(() => {
     if (connectModalOpen) {
-      const existing = loadSaved()
-      // Always include benchmark DB as a default option
-      const hasBenchmark = existing.some(c => c.id === 'benchmark-db')
-      if (!hasBenchmark) {
-        existing.unshift({
-          id: 'benchmark-db',
-          name: 'Benchmark DB',
-          type: 'sqlite',
-          connectionString: '',
-          filename: '',  // empty = uses default benchmark path
+      // Load saved connections from server (credentials stay server-side)
+      fetch('/api/connections')
+        .then(r => r.json())
+        .then((d: { connections: SavedConnectionView[] }) => {
+          const list = d.connections ?? []
+          // Always include benchmark DB
+          if (!list.some(c => c.id === 'benchmark-db')) {
+            list.unshift({ id: 'benchmark-db', name: 'Benchmark DB', type: 'sqlite' })
+          }
+          setSaved(list)
         })
-      }
-      setSaved(existing)
+        .catch(() => setSaved([{ id: 'benchmark-db', name: 'Benchmark DB', type: 'sqlite' }]))
       setShowNewForm(false)
       setTestStatus(null)
       setTestError('')
@@ -85,72 +71,41 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
 
   if (!connectModalOpen) return null
 
-  function buildConfig(conn: SavedConnection): DBConfig {
-    return {
-      type: conn.type,
-      name: conn.name,
-      connectionString: conn.connectionString || undefined,
-      filename: conn.filename || undefined,
-    }
-  }
-
-  function buildNewConfig(): DBConfig {
-    return {
-      type,
-      name: name || 'Unnamed',
-      connectionString: connectionString || undefined,
-      filename: filename || undefined,
-    }
-  }
-
-  async function doConnect(config: DBConfig, savedId?: string): Promise<boolean> {
+  async function handleConnectSaved(conn: SavedConnectionView) {
+    setConnecting(conn.id)
+    setConnectError('')
     setConnectionStatus('connecting')
-    // Find saved prompt for this connection
-    const savedConn = savedId ? saved.find(s => s.id === savedId) : undefined
+
+    // Connect by ID — server looks up credentials
     const res = await fetch('/api/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config, savedPrompt: savedConn?.savedPrompt }),
+      body: JSON.stringify({ connectionId: conn.id }),
     })
-    const data = (await res.json()) as {
-      ok: boolean
-      error?: string
-      schemaGraph?: SchemaGraph
-      tables?: TableStat[]
-    }
+    const data = (await res.json()) as { ok: boolean; error?: string; schemaGraph?: SchemaGraph; tables?: TableStat[] }
 
     if (!data.ok) {
       setConnectionStatus('error')
       setConnectError(data.error ?? 'Connection failed')
-      return false
-    }
-
-    // Update last connected
-    if (savedId) {
-      const updated = saved.map(s =>
-        s.id === savedId ? { ...s, lastConnected: Date.now() } : s
-      )
-      saveSaved(updated)
-      setSaved(updated)
+      setConnecting(null)
+      return
     }
 
     setConnectionStatus('connected')
-    onConnect(data.schemaGraph ?? { tables: [], edges: [] }, data.tables ?? [], config)
+    onConnect(data.schemaGraph ?? { tables: [], edges: [] }, data.tables ?? [], { type: conn.type, name: conn.name })
     setConnectModalOpen(false)
-    return true
-  }
-
-  async function handleConnectSaved(conn: SavedConnection) {
-    setConnecting(conn.id)
-    setConnectError('')
-    await doConnect(buildConfig(conn), conn.id)
     setConnecting(null)
   }
 
   async function handleTestNew() {
     setTestStatus('testing')
     setTestError('')
-    const config = buildNewConfig()
+    const config: DBConfig = {
+      type,
+      name: name || 'Unnamed',
+      connectionString: connectionString || undefined,
+      filename: filename || undefined,
+    }
     const res = await fetch('/api/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -158,7 +113,6 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
     })
     const data = (await res.json()) as { ok: boolean; error?: string }
     if (data.ok) {
-      // Disconnect after test
       await fetch('/api/disconnect', { method: 'POST' })
       setTestStatus('ok')
     } else {
@@ -170,32 +124,57 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
   async function handleSaveAndConnect() {
     setConnecting('new')
     setConnectError('')
+    setConnectionStatus('connecting')
 
-    const config = buildNewConfig()
-    const ok = await doConnect(config)
-    if (!ok) {
+    const config: DBConfig = {
+      type,
+      name: name || 'Unnamed',
+      connectionString: connectionString || undefined,
+      filename: filename || undefined,
+    }
+
+    // Connect first
+    const res = await fetch('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    })
+    const data = (await res.json()) as { ok: boolean; error?: string; schemaGraph?: SchemaGraph; tables?: TableStat[] }
+
+    if (!data.ok) {
+      setConnectionStatus('error')
+      setConnectError(data.error ?? 'Connection failed')
       setConnecting(null)
       return
     }
 
-    // Save to localStorage
-    const newConn: SavedConnection = {
-      id: Date.now().toString(),
-      name: name || 'Unnamed',
-      type,
-      connectionString,
-      filename,
-      lastConnected: Date.now(),
-    }
-    const updated = [newConn, ...saved.filter(s => s.name !== newConn.name)]
-    saveSaved(updated)
+    // Save credentials server-side (never stored in browser)
+    await fetch('/api/connections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: Date.now().toString(),
+        name: name || 'Unnamed',
+        type,
+        connectionString: connectionString || undefined,
+        filename: filename || undefined,
+        lastConnected: Date.now(),
+      }),
+    })
+
+    setConnectionStatus('connected')
+    onConnect(data.schemaGraph ?? { tables: [], edges: [] }, data.tables ?? [], config)
+    setConnectModalOpen(false)
     setConnecting(null)
   }
 
-  function handleDelete(id: string) {
-    const updated = saved.filter(s => s.id !== id)
-    saveSaved(updated)
-    setSaved(updated)
+  async function handleDelete(id: string) {
+    await fetch('/api/connections', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    setSaved(saved.filter(s => s.id !== id))
   }
 
   return (
@@ -212,45 +191,31 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
             </div>
             <h2 className="text-sm font-bold text-white">Connect to Database</h2>
           </div>
-          <button
-            onClick={() => setConnectModalOpen(false)}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
-          >
+          <button onClick={() => setConnectModalOpen(false)} className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
             <X size={14} />
           </button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
-          {/* Error banner */}
           {connectError && (
             <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5 text-xs text-red-300">
-              <AlertCircle size={13} className="shrink-0" />
-              {connectError}
+              <AlertCircle size={13} className="shrink-0" /> {connectError}
             </div>
           )}
 
           {/* Saved connections */}
           {saved.length > 0 && (
             <section>
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                Saved Connections
-              </div>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Saved Connections</div>
               <div className="flex flex-col gap-2">
                 {saved.map(conn => (
-                  <div
-                    key={conn.id}
-                    className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-2.5 hover:border-white/10 transition-colors"
-                  >
+                  <div key={conn.id} className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-2.5 hover:border-white/10 transition-colors">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${TYPE_COLORS[conn.type]}`}>
                         {TYPE_LABELS[conn.type]}
                       </span>
                       <span className="text-sm text-white truncate font-mono">{conn.name}</span>
-                      {conn.lastConnected && (
-                        <span className="text-[10px] text-gray-600 shrink-0">
-                          {new Date(conn.lastConnected).toLocaleDateString()}
-                        </span>
-                      )}
+                      {conn.savedPrompt && <span className="text-[9px] text-violet-400/60 shrink-0">GEPA tuned</span>}
                     </div>
                     <div className="flex items-center gap-1 shrink-0 ml-2">
                       <button
@@ -261,12 +226,11 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
                         {connecting === conn.id && <Loader2 size={11} className="animate-spin" />}
                         Connect
                       </button>
-                      <button
-                        onClick={() => handleDelete(conn.id)}
-                        className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {conn.id !== 'benchmark-db' && (
+                        <button onClick={() => handleDelete(conn.id)} className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -286,95 +250,63 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
 
             {showNewForm && (
               <div className="flex flex-col gap-3">
-                {/* Name */}
                 <div>
                   <label className="text-[10px] text-gray-500 font-medium mb-1 block">Connection Name</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="My Database"
-                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors"
-                  />
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="My Database"
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors" />
                 </div>
 
-                {/* Type selector */}
                 <div>
                   <label className="text-[10px] text-gray-500 font-medium mb-1 block">Database Type</label>
                   <div className="flex gap-2">
                     {(['sqlite', 'postgresql', 'mysql'] as const).map(t => (
-                      <button
-                        key={t}
-                        onClick={() => setType(t)}
-                        className={`flex-1 py-2 text-xs font-semibold rounded-xl border transition-all ${
-                          type === t
-                            ? 'bg-violet-600/20 text-violet-300 border-violet-500/40'
-                            : 'text-gray-500 border-white/[0.06] hover:text-gray-300 hover:border-white/10'
-                        }`}
-                      >
+                      <button key={t} onClick={() => setType(t)}
+                        className={`flex-1 py-2 text-xs font-semibold rounded-xl border transition-all ${type === t
+                          ? 'bg-violet-600/20 text-violet-300 border-violet-500/40'
+                          : 'text-gray-500 border-white/[0.06] hover:text-gray-300 hover:border-white/10'}`}>
                         {TYPE_LABELS[t]}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Connection details */}
                 {type === 'sqlite' ? (
                   <div>
                     <label className="text-[10px] text-gray-500 font-medium mb-1 block">File Path</label>
-                    <input
-                      type="text"
-                      value={filename}
-                      onChange={e => setFilename(e.target.value)}
-                      placeholder="/path/to/database.db"
-                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors"
-                    />
-                    <p className="text-[10px] text-gray-600 mt-1">Leave empty to use the demo benchmark DB</p>
+                    <input type="text" value={filename} onChange={e => setFilename(e.target.value)} placeholder="/path/to/database.db"
+                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors" />
+                    <p className="text-[10px] text-gray-600 mt-1">Leave empty for demo benchmark DB</p>
                   </div>
                 ) : (
                   <div>
                     <label className="text-[10px] text-gray-500 font-medium mb-1 block">Connection String</label>
-                    <input
-                      type="text"
-                      value={connectionString}
-                      onChange={e => setConnectionString(e.target.value)}
+                    <input type="password" value={connectionString} onChange={e => setConnectionString(e.target.value)}
                       placeholder={type === 'postgresql' ? 'postgresql://user:pass@host:5432/db' : 'mysql://user:pass@host:3306/db'}
-                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors"
-                    />
+                      className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 font-mono focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.05] transition-colors" />
+                    <p className="text-[10px] text-gray-600 mt-1">Credentials are stored server-side only, never in the browser</p>
                   </div>
                 )}
 
-                {/* Test status */}
                 {testStatus && (
                   <div className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 ${
-                    testStatus === 'ok'
-                      ? 'bg-green-500/10 border border-green-500/20 text-green-300'
-                      : testStatus === 'error'
-                      ? 'bg-red-500/10 border border-red-500/20 text-red-300'
-                      : 'bg-white/[0.03] border border-white/[0.06] text-gray-400'
-                  }`}>
+                    testStatus === 'ok' ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+                    : testStatus === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-300'
+                    : 'bg-white/[0.03] border border-white/[0.06] text-gray-400'}`}>
                     {testStatus === 'testing' && <Loader2 size={12} className="animate-spin" />}
                     {testStatus === 'ok' && <CheckCircle2 size={12} />}
                     {testStatus === 'error' && <AlertCircle size={12} />}
-                    {testStatus === 'testing' ? 'Testing connection...' : testStatus === 'ok' ? 'Connection successful' : testError}
+                    {testStatus === 'testing' ? 'Testing...' : testStatus === 'ok' ? 'Connection successful' : testError}
                   </div>
                 )}
 
-                {/* Buttons */}
                 <div className="flex gap-2 pt-1">
-                  <button
-                    onClick={handleTestNew}
-                    disabled={testStatus === 'testing' || connecting === 'new'}
-                    className="flex-1 py-2 text-xs font-semibold bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-xl hover:bg-white/[0.07] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
+                  <button onClick={handleTestNew} disabled={testStatus === 'testing' || connecting === 'new'}
+                    className="flex-1 py-2 text-xs font-semibold bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-xl hover:bg-white/[0.07] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
                     {testStatus === 'testing' && <Loader2 size={11} className="animate-spin" />}
-                    Test Connection
+                    Test
                   </button>
-                  <button
-                    onClick={handleSaveAndConnect}
-                    disabled={connecting === 'new' || testStatus === 'testing'}
-                    className="flex-1 py-2 text-xs font-semibold bg-violet-600/30 text-violet-200 border border-violet-500/40 rounded-xl hover:bg-violet-600/40 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
+                  <button onClick={handleSaveAndConnect} disabled={connecting === 'new' || testStatus === 'testing'}
+                    className="flex-1 py-2 text-xs font-semibold bg-violet-600/30 text-violet-200 border border-violet-500/40 rounded-xl hover:bg-violet-600/40 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
                     {connecting === 'new' && <Loader2 size={11} className="animate-spin" />}
                     Save &amp; Connect
                   </button>
@@ -384,12 +316,8 @@ export function ConnectModal({ onConnect }: ConnectModalProps) {
           </section>
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-3 border-t border-white/[0.06] shrink-0">
-          <button
-            onClick={() => setConnectModalOpen(false)}
-            className="w-full py-2 text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors"
-          >
+          <button onClick={() => setConnectModalOpen(false)} className="w-full py-2 text-xs font-semibold text-gray-500 hover:text-gray-300 transition-colors">
             Cancel
           </button>
         </div>

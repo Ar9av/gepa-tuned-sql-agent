@@ -6,17 +6,6 @@ import { useDemoStore } from '@/store/demo-store'
 import type { ChatMessage, GepaRun } from '@/store/demo-store'
 
 const MAX_DISPLAY_ROWS = 100
-const CONNECTIONS_LS_KEY = 'sql-agent-connections'
-
-function savePromptForActiveConnection(prompt: string) {
-  try {
-    const connName = useDemoStore.getState().activeConnection?.name
-    if (!connName) return
-    const saved = JSON.parse(localStorage.getItem(CONNECTIONS_LS_KEY) ?? '[]') as { id: string; name: string; savedPrompt?: string }[]
-    const updated = saved.map(s => s.name === connName ? { ...s, savedPrompt: prompt } : s)
-    localStorage.setItem(CONNECTIONS_LS_KEY, JSON.stringify(updated))
-  } catch {}
-}
 
 function ResultTable({ rows, rowCount }: { rows: Record<string, unknown>[]; rowCount: number }) {
   if (rows.length === 0) {
@@ -385,8 +374,7 @@ export function ChatPanel() {
                 addGepaRun(run)
                 setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt)
 
-                // Save evolved prompt to localStorage for this connection
-                savePromptForActiveConnection(gepaRun.newPrompt)
+                // Prompt is saved server-side by the feedback route
 
                 // Show diff summary as a toast/banner
                 const summary = gepaRun.diffSummary ?? gepaRun.reflection

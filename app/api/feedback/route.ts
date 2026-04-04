@@ -3,6 +3,7 @@ import { recordResult, shouldOptimize, runOptimizationCycle, getParetoFront, get
 import { runBenchmark } from '@/lib/benchmark'
 import { complete } from '@/lib/llm'
 import { getActiveConfig } from '@/lib/connector'
+import { updatePrompt } from '@/lib/connection-store'
 
 // Module-level wrong streak tracker
 let wrongStreak = 0
@@ -113,6 +114,12 @@ export async function POST(req: NextRequest) {
         )
 
         void rowCount // acknowledged
+
+        // Persist evolved prompt server-side for this connection
+        const activeConfig = getActiveConfig()
+        if (activeConfig) {
+          updatePrompt(activeConfig.name, optimizationResult.newPrompt)
+        }
 
         send({
           type: 'done',
