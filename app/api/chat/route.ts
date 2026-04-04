@@ -43,10 +43,22 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        // Get schema
+        // Get schema and detect DB dialect
         const schemaGraph = await extractSchemaGraph()
         const schemaText = formatSchemaAsText(schemaGraph)
-        const systemPrompt = getCurrentPrompt()
+        const dbType = activeConfig.type
+        const dialectName = dbType === 'postgresql' ? 'PostgreSQL' : dbType === 'mysql' ? 'MySQL' : 'SQLite'
+        const dialectHints = dbType === 'postgresql'
+          ? `\n- Use PostgreSQL syntax (NOT SQLite)\n- Booleans: use TRUE/FALSE, not 1/0\n- Date functions: use NOW(), DATE_TRUNC(), INTERVAL, not date() or strftime()\n- String functions: use ILIKE for case-insensitive, || for concat`
+          : dbType === 'mysql'
+          ? `\n- Use MySQL syntax (NOT SQLite)\n- Date functions: use NOW(), DATE_FORMAT(), not date() or strftime()\n- Use backticks for identifiers if needed`
+          : `\n- Use SQLite syntax\n- Date functions: use date(), strftime(), julianday()\n- No BOOLEAN type — use 0/1`
+
+        // Inject dialect into the GEPA system prompt
+        const basePrompt = getCurrentPrompt()
+        const systemPrompt = basePrompt.includes(dialectName)
+          ? basePrompt
+          : basePrompt + `\n\nIMPORTANT: Target database is ${dialectName}.${dialectHints}`
 
         let lastError = ''
         let lastSQL = ''
@@ -57,15 +69,15 @@ export async function POST(req: NextRequest) {
           const contextBlock = businessContext ? `\n\nBusiness Context:\n${businessContext}` : ''
           const userMessage =
             attempt === 1
-              ? `Schema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}`
-              : `Schema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL.`
+              ? `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}`
+              : `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL. Remember this is ${dialectName}, not SQLite.`
 
           // Step 1: Generate reasoning
           let reasoning = ''
           const reasoningStream = await llm.chat.completions.create({
             model: MODEL,
             messages: [
-              { role: 'system', content: `You are a SQL expert. Given a schema and a natural language question, explain your reasoning for how to write the SQL query. Be concise (3-5 bullet points). Focus on: which tables to join, what aggregations are needed, any tricky parts (date functions, window functions, subqueries). Do NOT output SQL — only the reasoning.` },
+              { role: 'system', content: `You are a ${dialectName} SQL expert. Given a schema and a natural language question, explain your reasoning for how to write the SQL query. Be concise (3-5 bullet points). Focus on: which tables to join, what aggregations are needed, any tricky parts (date functions, window functions, subqueries). Use ${dialectName}-specific syntax. Do NOT output SQL — only the reasoning.` },
               { role: 'user', content: userMessage },
             ],
             temperature: 0.1,
