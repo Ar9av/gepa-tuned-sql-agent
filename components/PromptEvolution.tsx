@@ -46,9 +46,9 @@ export function PromptEvolution() {
         {expanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
+            animate={{ opacity: 1, height: 300 }}
             exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
+            className="overflow-y-auto overflow-x-hidden"
           >
             <pre className="text-xs font-mono text-violet-200/70 bg-violet-950/30 rounded-xl p-3 border border-violet-500/20 whitespace-pre-wrap leading-relaxed">
               {prompt}
