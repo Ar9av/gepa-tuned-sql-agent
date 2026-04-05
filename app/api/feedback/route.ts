@@ -9,10 +9,23 @@ import { updatePrompt } from '@/lib/connection-store'
 let wrongStreak = 0
 let previousPrompt = ''
 
+interface ChatContext {
+  question: string
+  sql?: string
+  feedback: null | 'correct' | 'wrong'
+  rowCount: number
+}
+
 function isBenchmarkDB(): boolean {
   const config = getActiveConfig()
   if (!config) return false
   return config.type === 'sqlite' && config.name === 'Benchmark DB'
+}
+
+function getDialectName(): string {
+  const config = getActiveConfig()
+  if (!config) return 'SQLite'
+  return config.type === 'postgresql' ? 'PostgreSQL' : config.type === 'mysql' ? 'MySQL' : 'SQLite'
 }
 
 function feedbackScore(): number {
@@ -22,12 +35,34 @@ function feedbackScore(): number {
   return recent.filter(h => h.success).length / recent.length
 }
 
+/**
+ * Build a summary of the user's conversation feedback for GEPA.
+ * This lets the optimizer see what the user said was wrong and why.
+ */
+function buildUserFeedbackContext(chatHistory: ChatContext[]): string {
+  if (!chatHistory || chatHistory.length === 0) return ''
+
+  const entries = chatHistory.slice(-15)
+  const parts: string[] = []
+
+  for (const entry of entries) {
+    let line = `Q: "${entry.question}"`
+    if (entry.sql) line += `\n  SQL: ${entry.sql}`
+    line += `\n  Result: ${entry.rowCount} rows`
+    if (entry.feedback) line += ` → User marked: ${entry.feedback.toUpperCase()}`
+    parts.push(line)
+  }
+
+  return parts.join('\n\n')
+}
+
 export async function POST(req: NextRequest) {
-  const { correct, question, sql, rowCount } = (await req.json()) as {
+  const { correct, question, sql, rowCount, chatHistory } = (await req.json()) as {
     correct: boolean
     question: string
     sql: string
     rowCount: number
+    chatHistory?: ChatContext[]
   }
 
   // Record result in GEPA
@@ -66,9 +101,11 @@ export async function POST(req: NextRequest) {
       const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
 
       try {
-        // Step 1: Reflect
+        // Step 1: Reflect — pass user feedback context and dialect
         send({ type: 'gepa_status', step: 'reflecting', message: 'Analyzing failure patterns...' })
-        const optimizationResult = await runOptimizationCycle()
+        const userContext = buildUserFeedbackContext(chatHistory ?? [])
+        const dialect = getDialectName()
+        const optimizationResult = await runOptimizationCycle(userContext, dialect)
 
         if (!optimizationResult) {
           send({ type: 'done', recorded: true, optimized: false })

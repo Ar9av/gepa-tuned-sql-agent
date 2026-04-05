@@ -90,15 +90,19 @@ export function resetOptimizer() {
 
 // Run one GEPA optimization cycle
 // Called after every 4 queries that have been recorded
-export async function runOptimizationCycle(): Promise<{ newPrompt: string; reflection: string } | null> {
+export async function runOptimizationCycle(
+  userFeedbackContext?: string,
+  dialect?: string,
+): Promise<{ newPrompt: string; reflection: string } | null> {
   if (history.length < 2) return null
 
   const recentFailures = history.filter(h => h.attempts > 1 || !h.success).slice(-8)
   if (recentFailures.length < 2) return null
 
   const currentBest = getCurrentPrompt()
+  const dbDialect = dialect || 'SQLite'
 
-  // Step 1: Reflect — LLM diagnoses failure patterns
+  // Step 1: Reflect — LLM diagnoses failure patterns + user feedback
   const failureSummary = recentFailures
     .map(
       (f, i) =>
@@ -106,23 +110,30 @@ export async function runOptimizationCycle(): Promise<{ newPrompt: string; refle
     )
     .join('\n\n---\n\n')
 
+  const userContextBlock = userFeedbackContext
+    ? `\n\nUser conversation (the user marked queries as correct/wrong — pay close attention to what they said was wrong and WHY):\n${userFeedbackContext}`
+    : ''
+
   const reflection = await complete(
     `You are an expert SQL prompt engineer analyzing why an LLM SQL agent is failing.
+The target database is ${dbDialect} — all rules must use ${dbDialect} syntax, NOT other SQL dialects.
 Your job: identify specific, recurring patterns in these failures and state EXACTLY what rules or knowledge the system prompt is missing.
-Be very specific — name the SQLite functions, syntax patterns, or schema reasoning gaps that caused failures.
+CRITICAL: Pay close attention to what the USER marked as wrong and their follow-up messages explaining why. The user's corrections are ground truth — if they say a result is wrong, it IS wrong, even if the query executed successfully.
+Be very specific — name the exact ${dbDialect} functions, syntax patterns, or schema reasoning gaps that caused failures.
 Output a concise diagnosis (3-5 bullet points max).`,
-    `Current system prompt:\n${currentBest}\n\nRecent failures:\n${failureSummary}`
+    `Current system prompt:\n${currentBest}\n\nRecent failures:\n${failureSummary}${userContextBlock}`
   )
 
   // Step 2: Mutate — generate improved system prompt
   const currentGeneration = Math.max(...paretoFront.map(c => c.generation))
   const newPrompt = await complete(
-    `You are an expert prompt engineer. Improve a system prompt for a SQLite SQL generation agent.
+    `You are an expert prompt engineer. Improve a system prompt for a ${dbDialect} SQL generation agent.
 Rules for the new prompt:
 - Keep it concise and actionable
-- Add specific rules that address the diagnosed failure patterns
-- Include SQLite-specific syntax reminders where relevant
-- Do NOT add generic fluff — every rule must be earned by a real failure
+- The target database is ${dbDialect} — use ONLY ${dbDialect} syntax and functions
+- Add specific rules that address the diagnosed failure patterns AND the user's corrections
+- If the user told you what's wrong (e.g., "use this column", "the result should show X"), encode that knowledge as a rule
+- Do NOT add generic fluff — every rule must be earned by a real failure or user correction
 - Output ONLY the improved system prompt text, nothing else`,
     `Current system prompt:\n${currentBest}\n\nDiagnosed failure patterns:\n${reflection}\n\nWrite the improved system prompt:`
   )

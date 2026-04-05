@@ -467,6 +467,16 @@ export function ChatPanel() {
     updateChatMessage(msgId, { feedbackSending: true, feedback: correct ? 'correct' : 'wrong' })
 
     try {
+      // Build chat history for GEPA context — includes user corrections
+      const chatHistory = useDemoStore.getState().chatMessages
+        .filter(m => m.status === 'done' || m.status === 'error')
+        .map(m => ({
+          question: m.question,
+          sql: m.sql || undefined,
+          rowCount: m.rowCount,
+          feedback: m.feedback,
+        }))
+
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -475,6 +485,7 @@ export function ChatPanel() {
           question: msg.question,
           sql: msg.sql,
           rowCount: msg.rowCount,
+          chatHistory,
         }),
       })
 
