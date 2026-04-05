@@ -1,5 +1,17 @@
+<h1 align="center">
+  <br>
+  <img src="public/logo.svg" alt="SQL Agent" width="52" height="52"/>
+  <br>
+  SQL Agent
+  <br>
+</h1>
+
 <p align="center">
-  <img src="public/banner.svg" alt="SQL Agent Banner" width="100%"/>
+  <strong>Self-Debugging &nbsp;&middot;&nbsp; GEPA Prompt Evolution &nbsp;&middot;&nbsp; RL Environment</strong>
+</p>
+
+<p align="center">
+  An AI SQL agent that gets measurably better over time — without retraining the model.
 </p>
 
 <p align="center">
