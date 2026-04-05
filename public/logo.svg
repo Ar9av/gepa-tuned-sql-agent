@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="112" height="112" rx="24" fill="url(#g1)"/>
+  <!-- Lightning bolt (GEPA/optimization) -->
+  <path d="M68 20L42 62h18L48 100l32-46H62L68 20z" fill="white" opacity="0.95"/>
+  <!-- Database cylinder bottom -->
+  <ellipse cx="85" cy="90" rx="18" ry="6" fill="white" opacity="0.3"/>
+  <rect x="67" y="78" width="36" height="12" fill="white" opacity="0.3"/>
+  <ellipse cx="85" cy="78" rx="18" ry="6" fill="white" opacity="0.4"/>
+  <!-- Small circular nodes (RL/learning) -->
+  <circle cx="26" cy="88" r="5" fill="white" opacity="0.4"/>
+  <circle cx="26" cy="74" r="5" fill="white" opacity="0.3"/>
+  <line x1="26" y1="83" x2="26" y2="79" stroke="white" stroke-width="1.5" opacity="0.3"/>
+  <circle cx="38" cy="81" r="3.5" fill="white" opacity="0.25"/>
+  <line x1="31" y1="86" x2="35" y2="83" stroke="white" stroke-width="1" opacity="0.25"/>
+</svg>
