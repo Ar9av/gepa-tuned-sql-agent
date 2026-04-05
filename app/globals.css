@@ -123,24 +123,28 @@ body {
     color: var(--text-secondary) !important;
   }
 
-  /* Gray scale text adjustments for readability */
+  /* Gray scale — inverted for light mode readability.
+     Dark mode uses light grays for text; light mode needs dark grays. */
+  .text-gray-200 {
+    color: #1f2937 !important;  /* was near-white → now near-black */
+  }
   .text-gray-300 {
-    color: #374151 !important;
+    color: #374151 !important;  /* readable body text */
   }
   .text-gray-400 {
-    color: #4b5563 !important;
+    color: #4b5563 !important;  /* secondary text */
   }
   .text-gray-500 {
-    color: #6b7280 !important;
+    color: #6b7280 !important;  /* muted labels */
   }
   .text-gray-600 {
-    color: #9ca3af !important;
+    color: #9ca3af !important;  /* dim but visible */
   }
   .text-gray-700 {
-    color: #d1d5db !important;
+    color: #9ca3af !important;  /* was near-invisible → now visible muted */
   }
   .text-gray-800 {
-    color: #e5e7eb !important;
+    color: #b0b5bd !important;  /* was invisible → now light but readable */
   }
 
   /* Violet text stays but gets slightly adjusted */
@@ -183,6 +187,9 @@ body {
   }
   .hover\:text-white:hover {
     color: var(--text-primary) !important;
+  }
+  .hover\:text-gray-200:hover {
+    color: #1f2937 !important;
   }
   .hover\:text-gray-300:hover {
     color: #374151 !important;
@@ -254,9 +261,18 @@ body {
   .placeholder-gray-600::placeholder {
     color: #9ca3af !important;
   }
+  .placeholder-gray-700::placeholder {
+    color: #9ca3af !important;
+  }
 
   /* ── Code / pre blocks ── */
   pre {
+    background-color: var(--bg-tertiary) !important;
+    color: #374151 !important;
+  }
+
+  /* ── Table headers ── */
+  .bg-\[\#0a0a0f\] {
     background-color: var(--bg-tertiary) !important;
   }
 
