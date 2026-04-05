@@ -57,7 +57,16 @@ export interface QueryRun {
 }
 
 export interface TableStat { name: string; rows: number }
-export interface OptimizationEvent { generation: number; reflection: string; newPrompt: string; queryIndex: number }
+export interface OptimizationEvent {
+  generation: number
+  reflection: string
+  newPrompt: string
+  previousPrompt: string
+  queryIndex: number
+  score: number
+  diffSummary: string
+  timestamp: number
+}
 
 interface DemoStore {
   // Schema state
@@ -127,7 +136,7 @@ interface DemoStore {
   finishQuery: (success: boolean, rows?: Record<string, unknown>[], rowCount?: number, sql?: string) => void
 
   setOptimizationStart: () => void
-  setOptimizationDone: (reflection: string, newPrompt: string) => void
+  setOptimizationDone: (reflection: string, newPrompt: string, extra?: { previousPrompt?: string; score?: number; diffSummary?: string }) => void
 
   setPlaygroundSQL: (s: string) => void
   setPlaygroundResult: (r: DemoStore['playgroundResult']) => void
@@ -158,6 +167,7 @@ interface DemoStore {
 
   // Modal state
   connectModalOpen: boolean
+  diffModalOpen: boolean
 
   // Connection actions
   setActiveConnection: (c: DBConfig | null) => void
@@ -175,6 +185,7 @@ interface DemoStore {
   // Modal actions
   setBusinessContext: (text: string, name: string | null) => void
   setConnectModalOpen: (open: boolean) => void
+  setDiffModalOpen: (open: boolean) => void
 }
 
 export const useDemoStore = create<DemoStore>((set, get) => ({
@@ -275,10 +286,19 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   setOptimizationStart: () => set({ currentOptimization: null }),
 
-  setOptimizationDone: (reflection, newPrompt) => set((s) => ({
+  setOptimizationDone: (reflection, newPrompt, extra?: { previousPrompt?: string; score?: number; diffSummary?: string }) => set((s) => ({
     currentPrompt: newPrompt,
     currentOptimization: { reflection, newPrompt },
-    optimizations: [...s.optimizations, { generation: s.optimizations.length + 1, reflection, newPrompt, queryIndex: s.queryHistory.length }],
+    optimizations: [...s.optimizations, {
+      generation: s.optimizations.length + 1,
+      reflection,
+      newPrompt,
+      previousPrompt: extra?.previousPrompt ?? s.currentPrompt ?? '',
+      queryIndex: s.queryHistory.length,
+      score: extra?.score ?? 0,
+      diffSummary: extra?.diffSummary ?? '',
+      timestamp: Date.now(),
+    }],
   })),
 
   setPlaygroundSQL: (s) => set({ playgroundSQL: s }),
@@ -326,6 +346,7 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   // Modal state
   connectModalOpen: false,
+  diffModalOpen: false,
 
   // Connection actions
   setActiveConnection: (c) => set({ activeConnection: c }),
@@ -348,4 +369,5 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
   // Modal actions
   setBusinessContext: (text, name) => set({ businessContext: text, businessContextName: name }),
   setConnectModalOpen: (open) => set({ connectModalOpen: open }),
+  setDiffModalOpen: (open) => set({ diffModalOpen: open }),
 }))

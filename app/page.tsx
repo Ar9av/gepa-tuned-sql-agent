@@ -12,6 +12,7 @@ import { ERDiagram } from '@/components/ERDiagram'
 import { TableBrowser } from '@/components/TableBrowser'
 import { SQLPlayground } from '@/components/SQLPlayground'
 import { ConnectModal } from '@/components/ConnectModal'
+import { PromptDiffModal } from '@/components/PromptDiffModal'
 import { ChatPanel } from '@/components/ChatPanel'
 import { TuningGraph } from '@/components/TuningGraph'
 import { useDemoStore } from '@/store/demo-store'
@@ -232,8 +233,9 @@ export default function Home() {
         </aside>
       </div>
 
-      {/* Connect Modal */}
+      {/* Modals */}
       <ConnectModal onConnect={handleConnect} />
+      <PromptDiffModal />
     </div>
   )
 }

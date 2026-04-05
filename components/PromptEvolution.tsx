@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Brain, ChevronDown, ChevronUp, Zap } from 'lucide-react'
+import { Brain, ChevronDown, ChevronUp, Zap, GitCompare } from 'lucide-react'
 import { useDemoStore } from '@/store/demo-store'
 
 const SEED_SYSTEM_PROMPT = `You are a SQL expert. Given a natural language question and a SQLite database schema, write a correct SQL query.
@@ -13,7 +13,7 @@ Rules:
 - Use SQLite syntax`
 
 export function PromptEvolution() {
-  const { currentPrompt, optimizations } = useDemoStore()
+  const { currentPrompt, optimizations, setDiffModalOpen } = useDemoStore()
   const [expanded, setExpanded] = useState(false)
 
   const prompt = currentPrompt || SEED_SYSTEM_PROMPT
@@ -54,6 +54,20 @@ export function PromptEvolution() {
               {prompt}
             </pre>
 
+            {/* View Evolution button */}
+            <button
+              onClick={() => setDiffModalOpen(true)}
+              className="mt-2.5 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-violet-600/15 text-violet-300 border border-violet-500/25 rounded-xl hover:bg-violet-600/25 hover:border-violet-500/40 transition-all"
+            >
+              <GitCompare size={12} />
+              View Evolution Diff
+              {generation > 0 && (
+                <span className="text-[10px] text-violet-400/60 ml-1">
+                  ({generation} gen{generation !== 1 ? 's' : ''})
+                </span>
+              )}
+            </button>
+
             {/* Optimization history */}
             {optimizations.length > 0 && (
               <div className="mt-3 flex flex-col gap-2">
@@ -62,10 +76,19 @@ export function PromptEvolution() {
                   Optimization History
                 </div>
                 {optimizations.map((opt) => (
-                  <div key={opt.generation} className="border border-white/5 rounded-xl p-2.5">
-                    <div className="text-xs font-semibold text-violet-400 mb-1">Generation {opt.generation}</div>
-                    <div className="text-xs text-gray-400 leading-relaxed">{opt.reflection}</div>
-                  </div>
+                  <button
+                    key={opt.generation}
+                    onClick={() => setDiffModalOpen(true)}
+                    className="border border-white/5 rounded-xl p-2.5 text-left hover:border-white/10 hover:bg-white/[0.02] transition-all group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-violet-400">Generation {opt.generation}</span>
+                      <GitCompare size={10} className="text-gray-700 group-hover:text-violet-400 transition-colors" />
+                    </div>
+                    <div className="text-xs text-gray-400 leading-relaxed line-clamp-2">
+                      {opt.diffSummary || opt.reflection}
+                    </div>
+                  </button>
                 ))}
               </div>
             )}

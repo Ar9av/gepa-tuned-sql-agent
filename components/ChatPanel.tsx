@@ -391,7 +391,11 @@ export function ChatPanel() {
                   triggeredBy: 'feedback',
                 }
                 addGepaRun(run)
-                setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt)
+                setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt, {
+                  previousPrompt: gepaRun.previousPrompt,
+                  score: gepaRun.score,
+                  diffSummary: gepaRun.diffSummary,
+                })
 
                 // Prompt is saved server-side by the feedback route
 
@@ -419,7 +423,11 @@ export function ChatPanel() {
             triggeredBy: 'feedback',
           }
           addGepaRun(run)
-          setOptimizationDone(data.gepaRun.reflection, data.gepaRun.newPrompt)
+          setOptimizationDone(data.gepaRun.reflection, data.gepaRun.newPrompt, {
+            previousPrompt: data.gepaRun.previousPrompt,
+            score: data.gepaRun.score,
+            diffSummary: data.gepaRun.diffSummary,
+          })
         }
       }
 
