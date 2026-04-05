@@ -1,13 +1,14 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, Table, FileText, X, Upload } from 'lucide-react'
+import { Database, Table, FileText, X, Upload, ChevronDown, ChevronUp } from 'lucide-react'
 import { useDemoStore } from '@/store/demo-store'
 
 export function DatasetPanel() {
   const { tableStats, businessContext, businessContextName, setBusinessContext } = useDemoStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [contextExpanded, setContextExpanded] = useState(false)
 
   const hasSchema = tableStats.length > 0
   const totalRows = tableStats.reduce((s, t) => s + t.rows, 0)
@@ -79,9 +80,18 @@ export function DatasetPanel() {
                 <X size={10} />
               </button>
             </div>
-            <pre className="text-[9px] text-gray-500 bg-white/[0.02] rounded-lg px-2 py-1.5 border border-white/5 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-              {businessContext.slice(0, 500)}{businessContext.length > 500 ? '...' : ''}
+            <pre className={`text-[9px] text-gray-500 bg-white/[0.02] rounded-lg px-2 py-1.5 border border-white/5 overflow-y-auto whitespace-pre-wrap leading-relaxed ${contextExpanded ? 'max-h-60' : 'max-h-24'}`}>
+              {contextExpanded ? businessContext : businessContext.slice(0, 500)}{!contextExpanded && businessContext.length > 500 ? '...' : ''}
             </pre>
+            {businessContext.length > 500 && (
+              <button
+                onClick={() => setContextExpanded(!contextExpanded)}
+                className="flex items-center gap-1 text-[9px] text-violet-400/70 hover:text-violet-300 transition-colors"
+              >
+                {contextExpanded ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
+                {contextExpanded ? 'Show less' : `Show all (${businessContext.length.toLocaleString()} chars)`}
+              </button>
+            )}
           </div>
         ) : (
           <button

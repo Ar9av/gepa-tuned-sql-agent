@@ -84,7 +84,7 @@ function ReasoningBlock({ reasoning, streaming, defaultOpen }: { reasoning: stri
 
 // ─── Inline Optimization Card ──────────────────────────────────
 
-function OptimizationCard({ opt }: { opt: ChatOptimization }) {
+function OptimizationCard({ opt, onRetry }: { opt: ChatOptimization; onRetry?: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const { setDiffModalOpen } = useDemoStore()
 
@@ -189,14 +189,25 @@ function OptimizationCard({ opt }: { opt: ChatOptimization }) {
             </div>
           )}
 
-          {/* Full diff button */}
-          <button
-            onClick={() => setDiffModalOpen(true)}
-            className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-violet-600/15 text-violet-300 border border-violet-500/25 rounded-lg hover:bg-violet-600/25 transition-all"
-          >
-            <GitCompare size={12} />
-            View Full Evolution Diff
-          </button>
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDiffModalOpen(true)}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-violet-600/15 text-violet-300 border border-violet-500/25 rounded-lg hover:bg-violet-600/25 transition-all"
+            >
+              <GitCompare size={12} />
+              View Diff
+            </button>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-green-600/15 text-green-300 border border-green-500/25 rounded-lg hover:bg-green-600/25 transition-all"
+              >
+                <RefreshCw size={12} />
+                Retry with Gen {opt.generation}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -205,7 +216,11 @@ function OptimizationCard({ opt }: { opt: ChatOptimization }) {
 
 // ─── Message Card ───────────────────────────────────────────────
 
-function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: string, correct: boolean) => Promise<void> }) {
+function MessageCard({ msg, onFeedback, onRetry }: {
+  msg: ChatMessage
+  onFeedback: (id: string, correct: boolean) => Promise<void>
+  onRetry: (question: string) => void
+}) {
   const [sqlExpanded, setSqlExpanded] = useState(false)
 
   return (
@@ -213,7 +228,10 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
       {/* Question */}
       <div className="flex items-start gap-2">
         <MessageSquare size={12} className="text-violet-400 mt-0.5 shrink-0" />
-        <span className="text-sm text-white">{msg.question}</span>
+        <span className="text-sm text-white flex-1">{msg.question}</span>
+        <span className="text-[9px] text-gray-600 bg-white/5 rounded px-1.5 py-0.5 shrink-0 tabular-nums">
+          Gen {msg.promptGeneration}
+        </span>
       </div>
 
       {/* Streaming indicator */}
@@ -317,7 +335,12 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
       )}
 
       {/* Inline optimization card — appears below feedback when GEPA fires */}
-      {msg.optimization && <OptimizationCard opt={msg.optimization} />}
+      {msg.optimization && (
+        <OptimizationCard
+          opt={msg.optimization}
+          onRetry={msg.optimization.status === 'done' ? () => onRetry(msg.question) : undefined}
+        />
+      )}
     </div>
   )
 }
@@ -352,6 +375,7 @@ export function ChatPanel() {
     setIsSubmitting(true)
 
     const id = Date.now().toString()
+    const currentGen = useDemoStore.getState().optimizations.length
     const msg: ChatMessage = {
       id,
       question,
@@ -362,6 +386,7 @@ export function ChatPanel() {
       attempts: 1,
       status: 'streaming',
       feedback: null,
+      promptGeneration: currentGen,
     }
     addChatMessage(msg)
 
@@ -598,6 +623,102 @@ export function ChatPanel() {
     }
   }, [chatMessages, updateChatMessage, addGepaRun, setOptimizationDone])
 
+  // Re-run a question with the current (evolved) prompt
+  const handleRetry = useCallback((question: string) => {
+    setInput(question)
+    // Auto-submit after a tick so the input is set
+    setTimeout(() => {
+      const store = useDemoStore.getState()
+      if (store.chatInput.trim()) {
+        // Trigger submit by simulating the flow
+        setInput('')
+        setIsSubmitting(true)
+
+        const id = Date.now().toString()
+        const currentGen = store.optimizations.length
+        const msg: ChatMessage = {
+          id,
+          question,
+          reasoning: '',
+          sql: '',
+          rows: [],
+          rowCount: 0,
+          attempts: 1,
+          status: 'streaming',
+          feedback: null,
+          promptGeneration: currentGen,
+        }
+        addChatMessage(msg)
+
+        const MAX_CONTEXT_ROWS = 50
+        const history = store.chatMessages
+          .filter(m => m.status === 'done' || m.status === 'error')
+          .map(m => ({
+            question: m.question,
+            sql: m.sql || undefined,
+            rowCount: m.rowCount,
+            rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
+            rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
+            success: m.status === 'done',
+            feedback: m.feedback,
+          }))
+
+        fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question,
+            businessContext: store.businessContext || undefined,
+            history,
+          }),
+        }).then(async (res) => {
+          if (!res.body) throw new Error('No response body')
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              try {
+                const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+                if (event.type === 'reasoning_complete') {
+                  updateChatMessage(id, { reasoning: event.reasoning as string })
+                } else if (event.type === 'sql_complete') {
+                  updateChatMessage(id, { sql: event.sql as string })
+                } else if (event.type === 'success') {
+                  updateChatMessage(id, {
+                    status: 'done',
+                    sql: event.sql as string,
+                    rows: event.rows as Record<string, unknown>[],
+                    rowCount: event.rowCount as number,
+                    attempts: event.attempt as number,
+                  })
+                } else if (event.type === 'failed') {
+                  updateChatMessage(id, { status: 'error', errorMsg: `Failed after ${event.attempts} attempts` })
+                } else if (event.type === 'reasoning_chunk') {
+                  const cur = useDemoStore.getState().chatMessages.find(m => m.id === id)
+                  updateChatMessage(id, { reasoning: (cur?.reasoning ?? '') + (event.chunk as string) })
+                } else if (event.type === 'sql_chunk') {
+                  const cur = useDemoStore.getState().chatMessages.find(m => m.id === id)
+                  updateChatMessage(id, { sql: (cur?.sql ?? '') + (event.chunk as string) })
+                }
+              } catch {}
+            }
+          }
+        }).catch((err) => {
+          updateChatMessage(id, { status: 'error', errorMsg: (err as Error).message })
+        }).finally(() => {
+          setIsSubmitting(false)
+        })
+      }
+    }, 50)
+  }, [addChatMessage, updateChatMessage, setInput, setIsSubmitting])
+
   if (!activeConnection) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-600">
@@ -629,7 +750,7 @@ export function ChatPanel() {
         )}
         {chatMessages.map(msg => (
           <div key={msg.id} className="flex flex-col gap-2">
-            <MessageCard msg={msg} onFeedback={handleFeedback} />
+            <MessageCard msg={msg} onFeedback={handleFeedback} onRetry={handleRetry} />
           </div>
         ))}
         <div ref={bottomRef} />

@@ -27,6 +27,7 @@ export interface ChatMessage {
   feedback: null | 'correct' | 'wrong'
   feedbackSending?: boolean
   optimization?: ChatOptimization
+  promptGeneration: number  // which GEPA generation was active when this query ran
 }
 
 export interface GepaRun {
@@ -262,7 +263,7 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   startQuery: (question) => {
     const run: QueryRun = { id: Date.now().toString(), question, attempts: [], success: false, timestamp: Date.now() }
-    set({ currentQuery: run, isRunning: true, currentOptimization: null })
+    set({ currentQuery: run, isRunning: true })
   },
 
   startAttempt: (n) => set((s) => {

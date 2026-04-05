@@ -82,9 +82,10 @@ export default function Home() {
           {/* Mobile sidebar toggles */}
           <button
             onClick={() => { setLeftOpen(!leftOpen); setRightOpen(false) }}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+            className="lg:hidden flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-[10px]"
           >
-            <PanelLeftOpen size={16} />
+            <PanelLeftOpen size={14} />
+            <span className="hidden sm:inline">Data</span>
           </button>
 
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20">
@@ -123,9 +124,10 @@ export default function Home() {
           {/* Mobile right sidebar toggle */}
           <button
             onClick={() => { setRightOpen(!rightOpen); setLeftOpen(false) }}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+            className="lg:hidden flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-[10px]"
           >
-            <PanelRightOpen size={16} />
+            <span className="hidden sm:inline">GEPA</span>
+            <PanelRightOpen size={14} />
           </button>
         </div>
       </header>
