@@ -3,6 +3,17 @@ import type { SchemaGraph } from '@/lib/db'
 import type { DBConfig } from '@/lib/connector'
 import { GOLDEN_QUERIES } from '@/lib/golden-dataset'
 
+export interface ChatOptimization {
+  status: 'running' | 'done'
+  message?: string            // progress message while running
+  generation?: number
+  score?: number
+  reflection?: string
+  diffSummary?: string
+  previousPrompt?: string
+  newPrompt?: string
+}
+
 export interface ChatMessage {
   id: string
   question: string
@@ -15,6 +26,7 @@ export interface ChatMessage {
   errorMsg?: string
   feedback: null | 'correct' | 'wrong'
   feedbackSending?: boolean
+  optimization?: ChatOptimization
 }
 
 export interface GepaRun {

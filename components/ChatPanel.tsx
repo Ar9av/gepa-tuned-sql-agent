@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, CheckCircle2, XCircle, ChevronDown, ChevronUp, Loader2, RefreshCw, MessageSquare } from 'lucide-react'
+import { Send, CheckCircle2, XCircle, ChevronDown, ChevronUp, Loader2, RefreshCw, MessageSquare, GitCompare, Zap, ArrowRight, Plus, Minus } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useDemoStore } from '@/store/demo-store'
-import type { ChatMessage, GepaRun } from '@/store/demo-store'
+import type { ChatMessage, ChatOptimization, GepaRun } from '@/store/demo-store'
+import { computeDiff } from '@/lib/diff'
 
 const MAX_DISPLAY_ROWS = 100
 
@@ -54,7 +55,6 @@ function ResultTable({ rows, rowCount }: { rows: Record<string, unknown>[]; rowC
 function ReasoningBlock({ reasoning, streaming, defaultOpen }: { reasoning: string; streaming: boolean; defaultOpen: boolean }) {
   const [expanded, setExpanded] = useState(defaultOpen)
 
-  // Auto-expand while streaming, auto-collapse once done
   useEffect(() => {
     if (streaming) setExpanded(true)
     else setExpanded(false)
@@ -82,6 +82,129 @@ function ReasoningBlock({ reasoning, streaming, defaultOpen }: { reasoning: stri
   )
 }
 
+// ─── Inline Optimization Card ──────────────────────────────────
+
+function OptimizationCard({ opt }: { opt: ChatOptimization }) {
+  const [expanded, setExpanded] = useState(false)
+  const { setDiffModalOpen } = useDemoStore()
+
+  if (opt.status === 'running') {
+    return (
+      <div className="border border-violet-500/20 bg-violet-950/20 rounded-xl px-4 py-3 flex items-center gap-3">
+        <Loader2 size={14} className="animate-spin text-violet-400 shrink-0" />
+        <div>
+          <div className="text-[10px] font-semibold text-violet-300 uppercase tracking-wider">GEPA Optimizing</div>
+          <div className="text-xs text-gray-400 mt-0.5">{opt.message || 'Analyzing failure patterns...'}</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Done state — show the result
+  const diff = opt.previousPrompt && opt.newPrompt
+    ? computeDiff(opt.previousPrompt, opt.newPrompt)
+    : null
+
+  return (
+    <div className="border border-violet-500/25 bg-gradient-to-r from-violet-950/30 to-violet-950/10 rounded-xl overflow-hidden">
+      {/* Header — always visible */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/[0.02] transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-violet-600/20 flex items-center justify-center shrink-0">
+            <Zap size={13} className="text-violet-400" />
+          </div>
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-violet-300">Prompt Evolved</span>
+              <span className="text-[10px] bg-violet-500/20 text-violet-300 border border-violet-500/30 rounded-full px-2 py-0.5">
+                Gen {opt.generation}
+              </span>
+              {opt.score !== undefined && opt.score > 0 && (
+                <span className="text-[10px] text-gray-500 tabular-nums">
+                  Score: {Math.round(opt.score * 100)}%
+                </span>
+              )}
+            </div>
+            {opt.diffSummary && (
+              <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-1">{opt.diffSummary}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {diff && (
+            <div className="hidden sm:flex items-center gap-2 text-[10px]">
+              <span className="text-green-400/70">+{diff.stats.added}</span>
+              <span className="text-red-400/70">-{diff.stats.removed}</span>
+            </div>
+          )}
+          {expanded ? <ChevronUp size={12} className="text-gray-600" /> : <ChevronDown size={12} className="text-gray-600" />}
+        </div>
+      </button>
+
+      {/* Expanded: inline diff preview + open full modal */}
+      {expanded && (
+        <div className="border-t border-violet-500/15 px-4 py-3 flex flex-col gap-3">
+          {/* Reflection */}
+          {opt.reflection && (
+            <div>
+              <div className="text-[10px] font-semibold text-amber-400/60 uppercase tracking-wider mb-1.5">Why it changed</div>
+              <div className="text-xs text-gray-400 leading-relaxed prose prose-invert prose-xs max-w-none prose-strong:text-gray-200 prose-ul:my-1 prose-li:my-0.5">
+                <ReactMarkdown>{opt.reflection}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {/* Mini diff preview — show first ~8 changed lines */}
+          {diff && diff.stats.added + diff.stats.removed > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Changes</div>
+              <div className="rounded-lg border border-white/[0.06] overflow-hidden bg-[#0a0a12] font-mono text-[11px]">
+                {diff.lines
+                  .filter(l => l.type !== 'unchanged')
+                  .slice(0, 8)
+                  .map((line, i) => (
+                    <div
+                      key={i}
+                      className={`px-3 py-0.5 flex items-start gap-2 ${
+                        line.type === 'added'
+                          ? 'bg-green-500/8 text-green-300'
+                          : 'bg-red-500/8 text-red-300'
+                      }`}
+                    >
+                      <span className="shrink-0 w-3 text-center">
+                        {line.type === 'added' ? '+' : '-'}
+                      </span>
+                      <span className="whitespace-pre-wrap break-all">{line.content || ' '}</span>
+                    </div>
+                  ))}
+                {diff.lines.filter(l => l.type !== 'unchanged').length > 8 && (
+                  <div className="px-3 py-1 text-[10px] text-gray-600 bg-white/[0.02]">
+                    ... {diff.lines.filter(l => l.type !== 'unchanged').length - 8} more changes
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Full diff button */}
+          <button
+            onClick={() => setDiffModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-violet-600/15 text-violet-300 border border-violet-500/25 rounded-lg hover:bg-violet-600/25 transition-all"
+          >
+            <GitCompare size={12} />
+            View Full Evolution Diff
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Message Card ───────────────────────────────────────────────
+
 function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: string, correct: boolean) => Promise<void> }) {
   const [sqlExpanded, setSqlExpanded] = useState(false)
 
@@ -101,10 +224,10 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
         </div>
       )}
 
-      {/* Reasoning block — collapsible, collapsed by default once SQL is ready */}
+      {/* Reasoning block */}
       {msg.reasoning && (() => {
         const isStreaming = msg.status === 'streaming' && !msg.sql
-        const defaultOpen = isStreaming // auto-open while streaming, collapse once SQL appears
+        const defaultOpen = isStreaming
         return (
           <ReasoningBlock reasoning={msg.reasoning} streaming={isStreaming} defaultOpen={defaultOpen} />
         )
@@ -192,9 +315,14 @@ function MessageCard({ msg, onFeedback }: { msg: ChatMessage; onFeedback: (id: s
           )}
         </div>
       )}
+
+      {/* Inline optimization card — appears below feedback when GEPA fires */}
+      {msg.optimization && <OptimizationCard opt={msg.optimization} />}
     </div>
   )
 }
+
+// ─── Chat Panel ─────────────────────────────────────────────────
 
 export function ChatPanel() {
   const {
@@ -209,7 +337,6 @@ export function ChatPanel() {
     setChatInput: setInput,
   } = useDemoStore()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [gepaToast, setGepaToast] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -239,7 +366,6 @@ export function ChatPanel() {
     addChatMessage(msg)
 
     try {
-      // Build conversation history for context (cap rows at 50)
       const MAX_CONTEXT_ROWS = 50
       const history = useDemoStore.getState().chatMessages
         .filter(m => m.status === 'done' || m.status === 'error')
@@ -297,7 +423,6 @@ export function ChatPanel() {
               updateChatMessage(id, {
                 sql: (chatMessages.find(m => m.id === id)?.sql ?? '') + (event.chunk as string),
               })
-              // Use functional update pattern through re-read
             } else if (event.type === 'sql_complete') {
               updateChatMessage(id, { sql: event.sql as string })
             } else if (event.type === 'success') {
@@ -353,11 +478,14 @@ export function ChatPanel() {
         }),
       })
 
-      // Response might be JSON (no optimization) or SSE stream (optimization running)
       const contentType = res.headers.get('content-type') ?? ''
 
       if (contentType.includes('text/event-stream') && res.body) {
-        // SSE stream — GEPA is running, show progress
+        // SSE stream — GEPA is running, show inline progress
+        updateChatMessage(msgId, {
+          optimization: { status: 'running', message: 'Analyzing failure patterns...' },
+        })
+
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -375,7 +503,10 @@ export function ChatPanel() {
               const event = JSON.parse(line.slice(6)) as Record<string, unknown>
 
               if (event.type === 'gepa_status') {
-                setGepaToast(`⚡ GEPA: ${event.message as string}`)
+                // Update inline progress
+                updateChatMessage(msgId, {
+                  optimization: { status: 'running', message: event.message as string },
+                })
               }
 
               if (event.type === 'done' && event.optimized) {
@@ -397,22 +528,29 @@ export function ChatPanel() {
                   diffSummary: gepaRun.diffSummary,
                 })
 
-                // Prompt is saved server-side by the feedback route
-
-                // Show diff summary as a toast/banner
-                const summary = gepaRun.diffSummary ?? gepaRun.reflection
-                setGepaToast(`⚡ Gen ${gepaRun.generation} (score: ${Math.round(gepaRun.score * 100)}%) — ${summary}`)
-                setTimeout(() => setGepaToast(null), 10000)
+                // Show completed optimization inline on the message
+                updateChatMessage(msgId, {
+                  optimization: {
+                    status: 'done',
+                    generation: gepaRun.generation,
+                    score: gepaRun.score,
+                    reflection: gepaRun.reflection,
+                    diffSummary: gepaRun.diffSummary,
+                    previousPrompt: gepaRun.previousPrompt,
+                    newPrompt: gepaRun.newPrompt,
+                  },
+                })
               }
 
               if (event.type === 'done' && !event.optimized) {
-                setGepaToast(null)
+                // No optimization — clear the running state
+                updateChatMessage(msgId, { optimization: undefined })
               }
             } catch {}
           }
         }
       } else {
-        // Plain JSON response — no optimization triggered
+        // Plain JSON response
         const data = await res.json()
         if (data.optimized && data.gepaRun) {
           const run: GepaRun = {
@@ -428,13 +566,24 @@ export function ChatPanel() {
             score: data.gepaRun.score,
             diffSummary: data.gepaRun.diffSummary,
           })
+
+          updateChatMessage(msgId, {
+            optimization: {
+              status: 'done',
+              generation: data.gepaRun.generation,
+              score: data.gepaRun.score,
+              reflection: data.gepaRun.reflection,
+              diffSummary: data.gepaRun.diffSummary,
+              previousPrompt: data.gepaRun.previousPrompt,
+              newPrompt: data.gepaRun.newPrompt,
+            },
+          })
         }
       }
 
       updateChatMessage(msgId, { feedbackSending: false })
     } catch {
-      updateChatMessage(msgId, { feedbackSending: false })
-      setGepaToast(null)
+      updateChatMessage(msgId, { feedbackSending: false, optimization: undefined })
     }
   }, [chatMessages, updateChatMessage, addGepaRun, setOptimizationDone])
 
@@ -458,24 +607,6 @@ export function ChatPanel() {
 
   return (
     <div className="flex flex-col h-full relative">
-      {/* GEPA banner */}
-      {gepaToast && (
-        <div className="border-b border-violet-500/20 bg-violet-950/40 px-4 py-2.5 flex items-start gap-3 shrink-0">
-          <div className="mt-0.5 shrink-0">
-            {gepaToast.includes('Analyzing') || gepaToast.includes('Scoring') || gepaToast.includes('Summarizing') || gepaToast.includes('generated')
-              ? <Loader2 size={12} className="animate-spin text-violet-400" />
-              : <CheckCircle2 size={12} className="text-violet-400" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-semibold text-violet-300 uppercase tracking-wider mb-0.5">GEPA Optimization</div>
-            <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{gepaToast.replace(/^⚡\s*/, '')}</div>
-          </div>
-          <button onClick={() => setGepaToast(null)} className="text-gray-600 hover:text-gray-400 transition-colors shrink-0 mt-0.5">
-            <XCircle size={12} />
-          </button>
-        </div>
-      )}
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-6">
         {chatMessages.length === 0 && (
