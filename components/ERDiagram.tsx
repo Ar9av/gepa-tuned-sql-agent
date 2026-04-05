@@ -5,27 +5,24 @@ import { useDemoStore } from '@/store/demo-store'
 import type { SchemaGraph, FKEdge, TableNode } from '@/lib/db'
 import { RefreshCw } from 'lucide-react'
 
-const CARD_WIDTH = 220
 const HEADER_H = 36
 const ROW_H = 24
-const COL_GAP = 60
 const ROW_GAP = 40
 
 function getCardHeight(table: TableNode) {
   return HEADER_H + table.columns.length * ROW_H + 8
 }
 
-function computeLayout(tables: TableNode[]): Map<string, { x: number; y: number; w: number; h: number }> {
+function computeLayout(tables: TableNode[], cols: number, cardWidth: number, colGap: number): Map<string, { x: number; y: number; w: number; h: number }> {
   const positions = new Map<string, { x: number; y: number; w: number; h: number }>()
-  const COLS = 3
-  const colHeights = [0, 0, 0]
+  const colHeights = new Array(cols).fill(0)
 
   tables.forEach((table, i) => {
-    const col = i % COLS
-    const x = col * (CARD_WIDTH + COL_GAP)
+    const col = i % cols
+    const x = col * (cardWidth + colGap)
     const y = colHeights[col]
     const h = getCardHeight(table)
-    positions.set(table.name, { x, y, w: CARD_WIDTH, h })
+    positions.set(table.name, { x, y, w: cardWidth, h })
     colHeights[col] += h + ROW_GAP
   })
 
@@ -125,11 +122,34 @@ function TableCard({
   )
 }
 
+function useResponsiveLayout() {
+  const [layout, setLayout] = useState({ cols: 3, cardWidth: 220, colGap: 60 })
+
+  useEffect(() => {
+    function update() {
+      const w = window.innerWidth
+      if (w < 640) {
+        setLayout({ cols: 1, cardWidth: Math.min(280, w - 60), colGap: 0 })
+      } else if (w < 1024) {
+        setLayout({ cols: 2, cardWidth: 200, colGap: 40 })
+      } else {
+        setLayout({ cols: 3, cardWidth: 220, colGap: 60 })
+      }
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
+  return layout
+}
+
 export function ERDiagram() {
   const { schemaGraph, setSchemaGraph, tableStats } = useDemoStore()
   const [hoveredTable, setHoveredTable] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const { cols, cardWidth, colGap } = useResponsiveLayout()
 
   async function fetchGraph() {
     setLoading(true)
@@ -162,11 +182,11 @@ export function ERDiagram() {
   }
 
   const { tables, edges } = schemaGraph
-  const positions = computeLayout(tables)
+  const positions = computeLayout(tables, cols, cardWidth, colGap)
   const edgePaths = buildEdgePaths(edges, positions, tables)
 
   // SVG canvas size
-  const maxX = Math.max(...[...positions.values()].map(p => p.x + p.w)) + COL_GAP
+  const maxX = Math.max(...[...positions.values()].map(p => p.x + p.w)) + colGap
   const maxY = Math.max(...[...positions.values()].map(p => p.y + p.h)) + ROW_GAP
 
   // FK column sets per table

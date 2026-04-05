@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, GitFork, Table2, Code2, Target, Database, MessageSquare } from 'lucide-react'
+import { Zap, GitFork, Table2, Code2, Target, Database, MessageSquare, PanelLeftOpen, PanelRightOpen, X } from 'lucide-react'
 
 import { DatasetPanel } from '@/components/DatasetPanel'
 import { BenchmarkPanel } from '@/components/BenchmarkPanel'
@@ -31,6 +31,8 @@ const ALL_TABS: { id: Tab; label: string; icon: React.ReactNode; benchmarkOnly?:
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('chat')
+  const [leftOpen, setLeftOpen] = useState(false)
+  const [rightOpen, setRightOpen] = useState(false)
   const {
     setDbSeeded,
     setTableStats,
@@ -41,6 +43,12 @@ export default function Home() {
     setActiveConnection,
     connectionStatus,
   } = useDemoStore()
+
+  // Close mobile sidebars on tab change
+  useEffect(() => {
+    setLeftOpen(false)
+    setRightOpen(false)
+  }, [activeTab])
 
   useEffect(() => {
     fetch('/api/init')
@@ -68,21 +76,29 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#08080d] text-white flex flex-col" style={{ fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace' }}>
       {/* Header */}
-      <header className="border-b border-white/[0.06] px-5 py-3 flex items-center justify-between shrink-0 bg-[#09090f]/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-white/[0.06] px-3 sm:px-5 py-3 flex items-center justify-between shrink-0 bg-[#09090f]/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Mobile sidebar toggles */}
+          <button
+            onClick={() => { setLeftOpen(!leftOpen); setRightOpen(false) }}
+            className="lg:hidden p-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20">
             <Zap size={13} className="text-white" />
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-tight">SQL Agent</h1>
-            <p className="text-[10px] text-gray-600">Self-debugging &middot; GEPA prompt evolution</p>
+            <p className="text-[10px] text-gray-600 hidden sm:block">Self-debugging &middot; GEPA prompt evolution</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Connection status */}
           {activeConnection && connectionStatus === 'connected' && (
-            <div className="flex items-center gap-1.5 text-[10px] text-green-400">
+            <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-green-400">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
               connected: {activeConnection.name}
             </div>
@@ -90,47 +106,74 @@ export default function Home() {
           {connectionStatus === 'connecting' && (
             <div className="flex items-center gap-1.5 text-[10px] text-amber-400">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block animate-pulse" />
-              connecting...
+              <span className="hidden sm:inline">connecting...</span>
             </div>
           )}
 
           {/* Connect DB button */}
           <button
             onClick={() => setConnectModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-lg hover:bg-white/[0.07] hover:border-white/[0.12] hover:text-white transition-all"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs font-medium bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-lg hover:bg-white/[0.07] hover:border-white/[0.12] hover:text-white transition-all"
           >
             <Database size={13} />
-            Connect DB
+            <span className="hidden sm:inline">Connect DB</span>
+          </button>
+
+          {/* Mobile right sidebar toggle */}
+          <button
+            onClick={() => { setRightOpen(!rightOpen); setLeftOpen(false) }}
+            className="lg:hidden p-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+          >
+            <PanelRightOpen size={16} />
           </button>
         </div>
       </header>
 
       {/* Body: 3-column layout */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
 
-        {/* LEFT SIDEBAR */}
-        <aside className="w-60 shrink-0 border-r border-white/[0.06] flex flex-col overflow-y-auto bg-[#09090f]">
+        {/* Mobile overlay backdrop */}
+        {(leftOpen || rightOpen) && (
+          <div
+            className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+            onClick={() => { setLeftOpen(false); setRightOpen(false) }}
+          />
+        )}
+
+        {/* LEFT SIDEBAR — desktop: inline, mobile: overlay */}
+        <aside className={`
+          fixed top-[53px] bottom-0 left-0 z-40 w-64 bg-[#09090f] border-r border-white/[0.06] flex flex-col overflow-y-auto
+          transition-transform duration-200 ease-out
+          lg:static lg:w-60 lg:shrink-0 lg:translate-x-0 lg:z-auto
+          ${leftOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}>
+          <div className="flex items-center justify-between px-4 pt-3 lg:hidden">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Dataset</span>
+            <button onClick={() => setLeftOpen(false)} className="p-1 rounded hover:bg-white/5 text-gray-500">
+              <X size={14} />
+            </button>
+          </div>
           <div className="flex-1 p-4 flex flex-col gap-5">
             <DatasetPanel />
           </div>
         </aside>
 
         {/* CENTRE: Tabbed panel */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex items-center gap-1 px-4 py-2.5 border-b border-white/[0.06] bg-[#09090f] shrink-0">
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {/* Tab bar — scrollable on mobile */}
+          <div className="flex items-center gap-1 px-2 sm:px-4 py-2.5 border-b border-white/[0.06] bg-[#09090f] shrink-0 overflow-x-auto scrollbar-none">
             {ALL_TABS.filter(tab => !tab.benchmarkOnly || (activeConnection?.name === 'Benchmark DB')).map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 whitespace-nowrap shrink-0
                   ${activeTab === tab.id
                     ? 'bg-violet-600/20 text-violet-300 border border-violet-500/30'
                     : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                   }`}
               >
                 {tab.icon}
-                {tab.label}
+                <span className="hidden xs:inline sm:inline">{tab.label}</span>
               </button>
             ))}
           </div>
@@ -156,8 +199,19 @@ export default function Home() {
           </div>
         </main>
 
-        {/* RIGHT SIDEBAR */}
-        <aside className="w-72 shrink-0 border-l border-white/[0.06] flex flex-col overflow-y-auto bg-[#09090f]">
+        {/* RIGHT SIDEBAR — desktop: inline, mobile: overlay */}
+        <aside className={`
+          fixed top-[53px] bottom-0 right-0 z-40 w-72 bg-[#09090f] border-l border-white/[0.06] flex flex-col overflow-y-auto
+          transition-transform duration-200 ease-out
+          lg:static lg:shrink-0 lg:translate-x-0 lg:z-auto
+          ${rightOpen ? 'translate-x-0' : 'translate-x-full'}
+        `}>
+          <div className="flex items-center justify-between px-4 pt-3 lg:hidden">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">GEPA</span>
+            <button onClick={() => setRightOpen(false)} className="p-1 rounded hover:bg-white/5 text-gray-500">
+              <X size={14} />
+            </button>
+          </div>
           <div className="p-4 border-b border-white/[0.06]">
             <PromptEvolution />
           </div>
