@@ -150,6 +150,7 @@ interface DemoStore {
 
   // Chat state
   chatMessages: ChatMessage[]
+  chatInput: string
 
   // Tuning / GEPA runs
   gepaRuns: GepaRun[]
@@ -165,6 +166,7 @@ interface DemoStore {
   // Chat actions
   addChatMessage: (msg: ChatMessage) => void
   updateChatMessage: (id: string, update: Partial<ChatMessage>) => void
+  setChatInput: (s: string) => void
   clearChat: () => void
 
   // GEPA run actions
@@ -316,6 +318,7 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
 
   // Chat state
   chatMessages: [],
+  chatInput: '',
 
   // Tuning / GEPA runs
   gepaRuns: [],
@@ -333,7 +336,8 @@ export const useDemoStore = create<DemoStore>((set, get) => ({
   updateChatMessage: (id, update) => set((s) => ({
     chatMessages: s.chatMessages.map(m => m.id === id ? { ...m, ...update } : m),
   })),
-  clearChat: () => set({ chatMessages: [] }),
+  setChatInput: (s) => set({ chatInput: s }),
+  clearChat: () => set({ chatMessages: [], chatInput: '' }),
 
   // GEPA run actions
   addGepaRun: (run) => set((s) => ({

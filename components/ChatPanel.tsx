@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, CheckCircle2, XCircle, ChevronDown, ChevronUp, Loader2, RefreshCw, MessageSquare } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { useDemoStore } from '@/store/demo-store'
 import type { ChatMessage, GepaRun } from '@/store/demo-store'
 
@@ -73,8 +74,8 @@ function ReasoningBlock({ reasoning, streaming, defaultOpen }: { reasoning: stri
         {expanded ? <ChevronUp size={11} className="text-gray-600" /> : <ChevronDown size={11} className="text-gray-600" />}
       </button>
       {expanded && (
-        <div className="px-3 py-2.5 text-xs text-gray-400 leading-relaxed whitespace-pre-wrap border-t border-white/[0.04]">
-          {reasoning}
+        <div className="px-3 py-2.5 text-xs text-gray-400 leading-relaxed border-t border-white/[0.04] prose prose-invert prose-xs max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-headings:my-1 prose-strong:text-gray-200 prose-code:text-violet-300 prose-code:bg-white/5 prose-code:px-1 prose-code:rounded">
+          <ReactMarkdown>{reasoning}</ReactMarkdown>
         </div>
       )}
     </div>
@@ -204,9 +205,9 @@ export function ChatPanel() {
     setConnectModalOpen,
     addGepaRun,
     setOptimizationDone,
+    chatInput: input,
+    setChatInput: setInput,
   } = useDemoStore()
-
-  const [input, setInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [gepaToast, setGepaToast] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -238,10 +239,28 @@ export function ChatPanel() {
     addChatMessage(msg)
 
     try {
+      // Build conversation history for context (cap rows at 50)
+      const MAX_CONTEXT_ROWS = 50
+      const history = useDemoStore.getState().chatMessages
+        .filter(m => m.status === 'done' || m.status === 'error')
+        .map(m => ({
+          question: m.question,
+          sql: m.sql || undefined,
+          rowCount: m.rowCount,
+          rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
+          rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
+          success: m.status === 'done',
+          feedback: m.feedback,
+        }))
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, businessContext: useDemoStore.getState().businessContext || undefined }),
+        body: JSON.stringify({
+          question,
+          businessContext: useDemoStore.getState().businessContext || undefined,
+          history,
+        }),
       })
 
       if (!res.body) throw new Error('No response body')

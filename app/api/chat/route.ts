@@ -6,6 +6,16 @@ import { extractSchemaGraph, formatSchemaAsText } from '@/lib/schema-extractor'
 
 const MAX_ATTEMPTS = 3
 
+interface HistoryEntry {
+  question: string
+  sql?: string
+  rowCount: number
+  rows: Record<string, unknown>[]
+  rowsCapped: boolean
+  success: boolean
+  feedback: null | 'correct' | 'wrong'
+}
+
 function extractSQL(raw: string): string {
   return raw
     .replace(/```sql\s*/gi, '')
@@ -13,8 +23,32 @@ function extractSQL(raw: string): string {
     .trim()
 }
 
+function buildConversationContext(history: HistoryEntry[]): string {
+  if (!history || history.length === 0) return ''
+
+  const entries = history.slice(-10) // last 10 exchanges max
+  const parts = entries.map((h, i) => {
+    let entry = `[Q${i + 1}] ${h.question}`
+    if (h.sql) entry += `\nSQL: ${h.sql}`
+    entry += `\nResult: ${h.rowCount} rows, ${h.success ? 'success' : 'failed'}`
+    if (h.feedback) entry += ` (user marked: ${h.feedback})`
+    if (h.rows.length > 0) {
+      const preview = h.rows.slice(0, 5)
+      entry += `\nSample: ${JSON.stringify(preview)}`
+      if (h.rowsCapped) entry += ` (capped at 50 of ${h.rowCount} rows)`
+    }
+    return entry
+  })
+
+  return `\n\nConversation history (most recent queries — the user may reference these):\n${parts.join('\n\n')}`
+}
+
 export async function POST(req: NextRequest) {
-  const { question, businessContext } = (await req.json()) as { question: string; businessContext?: string }
+  const { question, businessContext, history } = (await req.json()) as {
+    question: string
+    businessContext?: string
+    history?: HistoryEntry[]
+  }
 
   if (!question?.trim()) {
     return new Response('Question required', { status: 400 })
@@ -67,10 +101,11 @@ export async function POST(req: NextRequest) {
           send({ type: 'attempt_start', attempt })
 
           const contextBlock = businessContext ? `\n\nBusiness Context:\n${businessContext}` : ''
+          const conversationContext = buildConversationContext(history ?? [])
           const userMessage =
             attempt === 1
-              ? `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}`
-              : `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL. Remember this is ${dialectName}, not SQLite.`
+              ? `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}${conversationContext}\n\nQuestion: ${question}`
+              : `Database: ${dialectName}\n\nSchema:\n${schemaText}${contextBlock}${conversationContext}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL. Remember this is ${dialectName}, not SQLite.`
 
           // Step 1: Generate reasoning
           let reasoning = ''

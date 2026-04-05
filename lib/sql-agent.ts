@@ -1,6 +1,15 @@
 import { llm, MODEL } from './llm'
 import { executeSQL, getSchemaInfo } from './db'
 import { getCurrentPrompt, recordResult } from './gepa'
+import {
+  reset as rlReset,
+  observeError,
+  selectAction,
+  getRepairPrompt,
+  recordStep,
+  endEpisode,
+} from './rl/environment'
+import { RepairAction, REPAIR_ACTION_NAMES } from './rl/types'
 
 export type AgentEvent =
   | { type: 'attempt_start'; attempt: number; maxAttempts: number }
@@ -15,6 +24,10 @@ export type AgentEvent =
   | { type: 'failed'; attempts: number }
   | { type: 'optimization_start' }
   | { type: 'optimization_done'; reflection: string; newPrompt: string }
+  // RL events — emitted so the UI can visualize bandit decisions
+  | { type: 'rl_action'; attempt: number; action: string; errorClass: string; scores: number[] }
+  | { type: 'rl_reward'; attempt: number; reward: number; breakdown: Record<string, number> }
+  | { type: 'rl_episode_end'; totalReward: number; episodeLength: number; success: boolean }
 
 function extractSQL(raw: string): string {
   // Strip markdown code fences if model adds them despite instructions
@@ -33,24 +46,49 @@ export async function* runSQLAgent(question: string): AsyncGenerator<AgentEvent>
   let lastSQL = ''
   const errors: string[] = []
 
+  // Initialize RL episode
+  rlReset(question)
+
+  let rlAction: RepairAction | null = null
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     yield { type: 'attempt_start', attempt, maxAttempts: MAX_ATTEMPTS }
 
-    // Build user message — on retries, include error context
-    const userMessage =
-      attempt === 1
-        ? `Schema:\n${schema}\n\nQuestion: ${question}`
-        : `Schema:\n${schema}\n\nQuestion: ${question}\n\nPrevious SQL that failed:\n${lastSQL}\n\nError: ${lastError}\n\nFix the SQL.`
+    let effectiveSystemPrompt = systemPrompt
+    let userMessage: string
+
+    if (attempt === 1) {
+      // First attempt — no RL involvement, use base prompt
+      userMessage = `Schema:\n${schema}\n\nQuestion: ${question}`
+    } else {
+      // Retry — RL agent picks the repair strategy
+      const obs = observeError(lastError, lastSQL, attempt)
+      const { action, actionName, scores } = selectAction()
+      rlAction = action
+
+      yield {
+        type: 'rl_action',
+        attempt,
+        action: actionName,
+        errorClass: obs.errorClassName,
+        scores,
+      }
+
+      // Get strategy-specific prompt
+      const repair = getRepairPrompt(action, schema, question, lastSQL, lastError)
+      effectiveSystemPrompt = systemPrompt + repair.systemSuffix
+      userMessage = repair.userMessage
+    }
 
     // Stream SQL generation
     let sql = ''
     const sqlStream = await llm.chat.completions.create({
       model: MODEL,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: effectiveSystemPrompt },
         { role: 'user', content: userMessage },
       ],
-      temperature: attempt === 1 ? 0.1 : 0.3, // more creative on retries
+      temperature: attempt === 1 ? 0.1 : 0.3,
       stream: true,
     })
 
@@ -71,6 +109,23 @@ export async function* runSQLAgent(question: string): AsyncGenerator<AgentEvent>
     const result = executeSQL(sql)
 
     if (result.success) {
+      // Record RL reward for the final step (if this was a retry)
+      if (attempt > 1 && rlAction !== null) {
+        const { reward, breakdown } = recordStep(rlAction, true, '', sql)
+        yield { type: 'rl_reward', attempt, reward, breakdown }
+      }
+
+      // End RL episode
+      const epResult = endEpisode(true)
+      if (epResult) {
+        yield {
+          type: 'rl_episode_end',
+          totalReward: epResult.totalReward,
+          episodeLength: epResult.episodeLength,
+          success: true,
+        }
+      }
+
       // Record success for GEPA
       recordResult({
         question,
@@ -91,10 +146,16 @@ export async function* runSQLAgent(question: string): AsyncGenerator<AgentEvent>
       return
     }
 
-    // Execution failed — diagnose
+    // Execution failed
     lastError = result.error
     errors.push(result.error)
     yield { type: 'error', attempt, error: result.error }
+
+    // Record RL reward for the failed step (if this was a retry)
+    if (attempt > 1 && rlAction !== null) {
+      const { reward, breakdown } = recordStep(rlAction, false, result.error, sql)
+      yield { type: 'rl_reward', attempt, reward, breakdown }
+    }
 
     if (attempt < MAX_ATTEMPTS) {
       yield { type: 'diagnosis_start', attempt }
@@ -129,7 +190,17 @@ export async function* runSQLAgent(question: string): AsyncGenerator<AgentEvent>
     }
   }
 
-  // All attempts exhausted
+  // All attempts exhausted — end RL episode as failure
+  const epResult = endEpisode(false)
+  if (epResult) {
+    yield {
+      type: 'rl_episode_end',
+      totalReward: epResult.totalReward,
+      episodeLength: epResult.episodeLength,
+      success: false,
+    }
+  }
+
   recordResult({
     question,
     finalSQL: lastSQL,
