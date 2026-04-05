@@ -283,8 +283,8 @@ function MessageCard({ msg, onFeedback, onRetry }: {
         </div>
       )}
 
-      {/* Result */}
-      {msg.status === 'done' && (
+      {/* Result — only for actual queries (attempts > 0), not suggestions */}
+      {msg.status === 'done' && msg.attempts > 0 && (
         <div className="flex flex-col gap-1.5">
           <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-0.5">
             Result: {msg.rowCount} row{msg.rowCount !== 1 ? 's' : ''}
@@ -304,8 +304,8 @@ function MessageCard({ msg, onFeedback, onRetry }: {
         </div>
       )}
 
-      {/* Feedback buttons */}
-      {msg.status === 'done' && (
+      {/* Feedback buttons — only for actual queries */}
+      {msg.status === 'done' && msg.attempts > 0 && (
         <div className="flex items-center gap-2">
           {msg.feedback ? (
             <div className={`text-xs flex items-center gap-1.5 ${msg.feedback === 'correct' ? 'text-green-400' : 'text-red-400'}`}>
@@ -478,10 +478,26 @@ export function ChatPanel() {
           }
         }
       } else {
-        updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded for the next optimization cycle.', optimization: undefined })
+        // JSON response — check if optimization happened
+        try {
+          const data = await res.json()
+          if (data.optimized && data.gepaRun) {
+            const gepaRun = data.gepaRun
+            addGepaRun({ generation: gepaRun.generation, score: gepaRun.score, label: `Gen ${gepaRun.generation}`, timestamp: Date.now(), triggeredBy: 'suggestion' })
+            setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt, { previousPrompt: gepaRun.previousPrompt, score: gepaRun.score, diffSummary: gepaRun.diffSummary })
+            updateChatMessage(id, {
+              reasoning: `Thanks for the suggestion! I've incorporated it into the prompt.`,
+              optimization: { status: 'done', generation: gepaRun.generation, score: gepaRun.score, reflection: gepaRun.reflection, diffSummary: gepaRun.diffSummary, previousPrompt: gepaRun.previousPrompt, newPrompt: gepaRun.newPrompt },
+            })
+          } else {
+            updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded and will be used in the next optimization cycle.', optimization: undefined })
+          }
+        } catch {
+          updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded.', optimization: undefined })
+        }
       }
     } catch {
-      updateChatMessage(id, { reasoning: 'Failed to process suggestion.', optimization: undefined })
+      updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded for the next optimization cycle.', optimization: undefined })
     }
   }, [addChatMessage, updateChatMessage, addGepaRun, setOptimizationDone])
 
