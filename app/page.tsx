@@ -104,7 +104,7 @@ export default function Home() {
             <span className="hidden sm:inline">Data</span>
           </button>
 
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center shadow-lg shadow-violet-500/20">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center shadow-lg" style={{ background: '#1e3a5f', boxShadow: '0 4px 12px rgba(30,58,95,0.3)' }}>
             <Zap size={13} className="text-white" />
           </div>
           <div>
