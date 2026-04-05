@@ -3,53 +3,42 @@
 /* ─── Theme Variables ─────────────────────────────────────── */
 
 :root {
-  /* Dark mode (default) */
   --bg-primary: #08080d;
   --bg-secondary: #09090f;
   --bg-tertiary: #0a0a12;
   --bg-card: #0e0e16;
+  --bg-input: rgba(255, 255, 255, 0.03);
   --bg-hover: rgba(255, 255, 255, 0.02);
   --bg-hover-strong: rgba(255, 255, 255, 0.05);
-  --bg-input: rgba(255, 255, 255, 0.03);
 
   --text-primary: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.7);
   --text-muted: #6b7280;
   --text-dim: #4b5563;
 
-  --border-primary: rgba(255, 255, 255, 0.06);
-  --border-secondary: rgba(255, 255, 255, 0.08);
+  --border-color: rgba(255, 255, 255, 0.06);
   --border-hover: rgba(255, 255, 255, 0.12);
-
-  --violet-bg: rgba(139, 92, 246, 0.2);
-  --violet-border: rgba(139, 92, 246, 0.3);
-  --violet-text: #c4b5fd;
 
   --background: var(--bg-primary);
   --foreground: var(--text-primary);
 }
 
 [data-theme="light"] {
-  --bg-primary: #f8f9fb;
+  --bg-primary: #f5f6f8;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #f1f3f5;
+  --bg-tertiary: #eef0f3;
   --bg-card: #ffffff;
+  --bg-input: rgba(0, 0, 0, 0.04);
   --bg-hover: rgba(0, 0, 0, 0.02);
-  --bg-hover-strong: rgba(0, 0, 0, 0.04);
-  --bg-input: rgba(0, 0, 0, 0.03);
+  --bg-hover-strong: rgba(0, 0, 0, 0.05);
 
   --text-primary: #111827;
   --text-secondary: #374151;
   --text-muted: #6b7280;
   --text-dim: #9ca3af;
 
-  --border-primary: rgba(0, 0, 0, 0.08);
-  --border-secondary: rgba(0, 0, 0, 0.12);
-  --border-hover: rgba(0, 0, 0, 0.18);
-
-  --violet-bg: rgba(139, 92, 246, 0.08);
-  --violet-border: rgba(139, 92, 246, 0.25);
-  --violet-text: #7c3aed;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --border-hover: rgba(0, 0, 0, 0.2);
 
   --background: var(--bg-primary);
   --foreground: var(--text-primary);
@@ -68,21 +57,253 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ─── Theme-Aware Utility Classes ─────────────────────────── */
+/* ─── Theme Utility Classes ───────────────────────────────── */
 
-.theme-bg-primary { background: var(--bg-primary); }
-.theme-bg-secondary { background: var(--bg-secondary); }
-.theme-bg-tertiary { background: var(--bg-tertiary); }
-.theme-bg-card { background: var(--bg-card); }
-.theme-bg-input { background: var(--bg-input); }
+.theme-bg-primary { background-color: var(--bg-primary) !important; }
+.theme-bg-secondary { background-color: var(--bg-secondary) !important; }
+.theme-bg-tertiary { background-color: var(--bg-tertiary) !important; }
+.theme-bg-card { background-color: var(--bg-card) !important; }
+.theme-bg-input { background-color: var(--bg-input) !important; }
+.theme-text-primary { color: var(--text-primary) !important; }
+.theme-text-secondary { color: var(--text-secondary) !important; }
+.theme-text-muted { color: var(--text-muted) !important; }
+.theme-border { border-color: var(--border-color) !important; }
+.theme-border-secondary { border-color: var(--border-hover) !important; }
 
-.theme-text-primary { color: var(--text-primary); }
-.theme-text-secondary { color: var(--text-secondary); }
-.theme-text-muted { color: var(--text-muted); }
-.theme-text-dim { color: var(--text-dim); }
+/* ─── Light Mode Global Overrides ─────────────────────────── */
+/* Override hardcoded dark-mode colors across all components   */
 
-.theme-border { border-color: var(--border-primary); }
-.theme-border-secondary { border-color: var(--border-secondary); }
+[data-theme="light"] {
+
+  /* ── Backgrounds ── */
+
+  /* All hardcoded dark backgrounds → light equivalents */
+  .bg-\[\#08080d\],
+  .bg-\[\#09090f\],
+  .bg-\[\#0a0a0f\],
+  .bg-\[\#0a0a12\],
+  .bg-\[\#0c0c14\],
+  .bg-\[\#0d0d14\] {
+    background-color: var(--bg-secondary) !important;
+  }
+
+  .bg-\[\#0e0e16\] {
+    background-color: var(--bg-card) !important;
+  }
+
+  /* Semi-transparent white backgrounds → semi-transparent black */
+  .bg-white\/\[0\.02\],
+  .bg-white\/\[0\.01\] {
+    background-color: rgba(0, 0, 0, 0.02) !important;
+  }
+  .bg-white\/\[0\.03\] {
+    background-color: rgba(0, 0, 0, 0.03) !important;
+  }
+  .bg-white\/\[0\.04\] {
+    background-color: rgba(0, 0, 0, 0.03) !important;
+  }
+  .bg-white\/5,
+  .bg-white\/3 {
+    background-color: rgba(0, 0, 0, 0.04) !important;
+  }
+
+  /* Backdrop blur header */
+  .bg-\[\#09090f\]\/80 {
+    background-color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  /* ── Text ── */
+
+  /* Primary text */
+  .text-white {
+    color: var(--text-primary) !important;
+  }
+  .text-white\/70,
+  .text-white\/80 {
+    color: var(--text-secondary) !important;
+  }
+
+  /* Gray scale text adjustments for readability */
+  .text-gray-300 {
+    color: #374151 !important;
+  }
+  .text-gray-400 {
+    color: #4b5563 !important;
+  }
+  .text-gray-500 {
+    color: #6b7280 !important;
+  }
+  .text-gray-600 {
+    color: #9ca3af !important;
+  }
+  .text-gray-700 {
+    color: #d1d5db !important;
+  }
+  .text-gray-800 {
+    color: #e5e7eb !important;
+  }
+
+  /* Violet text stays but gets slightly adjusted */
+  .text-violet-200\/80,
+  .text-violet-200\/70,
+  .text-violet-200\/60 {
+    color: #5b21b6 !important;
+  }
+  .text-violet-300 {
+    color: #7c3aed !important;
+  }
+  .text-violet-400 {
+    color: #7c3aed !important;
+  }
+
+  /* ── Borders ── */
+
+  .border-white\/\[0\.03\],
+  .border-white\/\[0\.04\],
+  .border-white\/\[0\.05\],
+  .border-white\/\[0\.06\],
+  .border-white\/\[0\.08\],
+  .border-white\/5,
+  .border-white\/10 {
+    border-color: var(--border-color) !important;
+  }
+  .border-white\/\[0\.1\],
+  .border-white\/\[0\.12\] {
+    border-color: var(--border-hover) !important;
+  }
+
+  /* ── Hover states ── */
+
+  .hover\:bg-white\/5:hover,
+  .hover\:bg-white\/3:hover,
+  .hover\:bg-white\/\[0\.02\]:hover,
+  .hover\:bg-white\/\[0\.04\]:hover,
+  .hover\:bg-white\/\[0\.07\]:hover {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+  }
+  .hover\:text-white:hover {
+    color: var(--text-primary) !important;
+  }
+  .hover\:text-gray-300:hover {
+    color: #374151 !important;
+  }
+  .hover\:text-gray-400:hover {
+    color: #4b5563 !important;
+  }
+  .hover\:border-white\/\[0\.12\]:hover,
+  .hover\:border-white\/\[0\.1\]:hover {
+    border-color: var(--border-hover) !important;
+  }
+
+  /* ── Special backgrounds ── */
+
+  /* Violet tinted backgrounds */
+  .bg-violet-950\/20,
+  .bg-violet-950\/30,
+  .bg-violet-950\/40 {
+    background-color: rgba(139, 92, 246, 0.06) !important;
+  }
+  .bg-violet-600\/20,
+  .bg-violet-600\/15,
+  .bg-violet-600\/30 {
+    background-color: rgba(139, 92, 246, 0.08) !important;
+  }
+  .bg-violet-500\/10 {
+    background-color: rgba(139, 92, 246, 0.06) !important;
+  }
+
+  /* Amber tinted */
+  .bg-amber-950\/10,
+  .bg-amber-950\/15 {
+    background-color: rgba(245, 158, 11, 0.05) !important;
+  }
+
+  /* Error / success tinted */
+  .bg-red-500\/10,
+  .bg-red-500\/8 {
+    background-color: rgba(239, 68, 68, 0.06) !important;
+  }
+  .bg-green-500\/10,
+  .bg-green-500\/8,
+  .bg-green-600\/15 {
+    background-color: rgba(34, 197, 94, 0.06) !important;
+  }
+
+  /* ── Borders – special ── */
+
+  .border-violet-500\/20,
+  .border-violet-500\/25,
+  .border-violet-500\/30,
+  .border-violet-500\/40,
+  .border-violet-500\/15 {
+    border-color: rgba(139, 92, 246, 0.2) !important;
+  }
+  .border-amber-500\/10,
+  .border-amber-500\/15 {
+    border-color: rgba(245, 158, 11, 0.15) !important;
+  }
+  .border-red-500\/20 {
+    border-color: rgba(239, 68, 68, 0.2) !important;
+  }
+  .border-green-500\/20,
+  .border-green-500\/25 {
+    border-color: rgba(34, 197, 94, 0.2) !important;
+  }
+
+  /* ── Placeholder text ── */
+  .placeholder-gray-600::placeholder {
+    color: #9ca3af !important;
+  }
+
+  /* ── Code / pre blocks ── */
+  pre {
+    background-color: var(--bg-tertiary) !important;
+  }
+
+  /* ── Shadows ── */
+  .shadow-violet-500\/20,
+  .shadow-violet-500\/10,
+  .shadow-violet-500\/5 {
+    --tw-shadow-color: rgba(139, 92, 246, 0.08) !important;
+  }
+  .shadow-black\/50 {
+    --tw-shadow-color: rgba(0, 0, 0, 0.15) !important;
+  }
+
+  /* ── Charts / SVG ── */
+  .recharts-cartesian-grid line {
+    stroke: rgba(0, 0, 0, 0.06) !important;
+  }
+
+  /* ── Modal backdrop ── */
+  .bg-black\/50,
+  .bg-black\/70 {
+    background-color: rgba(0, 0, 0, 0.3) !important;
+  }
+
+  /* ── Scrollbar track ── */
+  ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+  }
+
+  /* ── Gradient overrides ── */
+  .from-violet-500 {
+    --tw-gradient-from: #7c3aed !important;
+  }
+  .to-violet-700 {
+    --tw-gradient-to: #6d28d9 !important;
+  }
+  .from-violet-950\/30 {
+    --tw-gradient-from: rgba(139, 92, 246, 0.06) !important;
+  }
+  .to-violet-950\/10 {
+    --tw-gradient-from: rgba(139, 92, 246, 0.03) !important;
+  }
+}
 
 /* ─── Scrollbar ───────────────────────────────────────────── */
 
