@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, GitFork, Table2, Code2, Target, Database, MessageSquare, PanelLeftOpen, PanelRightOpen, X } from 'lucide-react'
+import { Zap, GitFork, Table2, Code2, Target, Database, MessageSquare, PanelLeftOpen, PanelRightOpen, X, Sun, Moon } from 'lucide-react'
 
 import { DatasetPanel } from '@/components/DatasetPanel'
 import { BenchmarkPanel } from '@/components/BenchmarkPanel'
@@ -34,6 +34,22 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('chat')
   const [leftOpen, setLeftOpen] = useState(false)
   const [rightOpen, setRightOpen] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    // Persist preference
+    try { localStorage.setItem('theme', theme) } catch {}
+  }, [theme])
+
+  // Load persisted theme on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
+      if (saved) setTheme(saved)
+    } catch {}
+  }, [])
   const {
     setDbSeeded,
     setTableStats,
@@ -75,9 +91,9 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-[#08080d] text-white flex flex-col" style={{ fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace' }}>
+    <div className="min-h-screen flex flex-col theme-bg-primary theme-text-primary" style={{ fontFamily: 'ui-monospace, "SF Mono", Consolas, monospace' }}>
       {/* Header */}
-      <header className="border-b border-white/[0.06] px-3 sm:px-5 py-3 flex items-center justify-between shrink-0 bg-[#09090f]/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b px-3 sm:px-5 py-3 flex items-center justify-between shrink-0 backdrop-blur-sm sticky top-0 z-50 theme-border" style={{ background: 'var(--bg-secondary)' }}>
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Mobile sidebar toggles */}
           <button
@@ -112,10 +128,20 @@ export default function Home() {
             </div>
           )}
 
+          {/* Theme toggle */}
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg-hover-strong)] transition-colors theme-text-muted"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+
           {/* Connect DB button */}
           <button
             onClick={() => setConnectModalOpen(true)}
-            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs font-medium bg-white/[0.04] text-gray-300 border border-white/[0.08] rounded-lg hover:bg-white/[0.07] hover:border-white/[0.12] hover:text-white transition-all"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-xs font-medium rounded-lg transition-all theme-border-secondary"
+            style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', borderWidth: 1 }}
           >
             <Database size={13} />
             <span className="hidden sm:inline">Connect DB</span>
@@ -145,9 +171,9 @@ export default function Home() {
 
         {/* LEFT SIDEBAR — desktop: inline, mobile: overlay */}
         <aside className={`
-          fixed top-[53px] bottom-0 left-0 z-40 w-64 bg-[#09090f] border-r border-white/[0.06] flex flex-col overflow-y-auto
+          fixed top-[53px] bottom-0 left-0 z-40 w-64 theme-bg-secondary border-r theme-border flex flex-col overflow-y-auto
           transition-transform duration-200 ease-out
-          lg:static lg:w-60 lg:shrink-0 lg:translate-x-0 lg:z-auto
+          lg:static lg:w-60 lg:shrink-0 lg:translate-x-0 lg:z-auto theme-bg-secondary
           ${leftOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
           <div className="flex items-center justify-between px-4 pt-3 lg:hidden">
@@ -164,7 +190,7 @@ export default function Home() {
         {/* CENTRE: Tabbed panel */}
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Tab bar — scrollable on mobile */}
-          <div className="flex items-center gap-1 px-2 sm:px-4 py-2.5 border-b border-white/[0.06] bg-[#09090f] shrink-0 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-1 px-2 sm:px-4 py-2.5 border-b theme-border theme-bg-secondary shrink-0 overflow-x-auto scrollbar-none">
             {ALL_TABS.filter(tab => !tab.benchmarkOnly || (activeConnection?.name === 'Benchmark DB')).map(tab => (
               <button
                 key={tab.id}
@@ -204,7 +230,7 @@ export default function Home() {
 
         {/* RIGHT SIDEBAR — desktop: inline, mobile: overlay */}
         <aside className={`
-          fixed top-[53px] bottom-0 right-0 z-40 w-72 bg-[#09090f] border-l border-white/[0.06] flex flex-col overflow-y-auto
+          fixed top-[53px] bottom-0 right-0 z-40 w-72 theme-bg-secondary border-l theme-border flex flex-col overflow-y-auto
           transition-transform duration-200 ease-out
           lg:static lg:shrink-0 lg:translate-x-0 lg:z-auto
           ${rightOpen ? 'translate-x-0' : 'translate-x-full'}
@@ -215,10 +241,10 @@ export default function Home() {
               <X size={14} />
             </button>
           </div>
-          <div className="p-4 border-b border-white/[0.06]">
+          <div className="p-4 border-b theme-border">
             <PromptEvolution />
           </div>
-          <div className="p-4 border-b border-white/[0.06]">
+          <div className="p-4 border-b theme-border">
             <div className="flex items-center gap-2 text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">
               <Zap size={10} className="text-violet-400" />
               Tuning Progress

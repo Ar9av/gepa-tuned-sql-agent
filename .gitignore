@@ -43,3 +43,6 @@ next-env.d.ts
 
 # saved connections (contains credentials)
 data/
+
+# session data
+.sessions/

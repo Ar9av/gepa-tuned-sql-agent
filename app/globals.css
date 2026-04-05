@@ -1,8 +1,58 @@
 @import "tailwindcss";
 
+/* ─── Theme Variables ─────────────────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dark mode (default) */
+  --bg-primary: #08080d;
+  --bg-secondary: #09090f;
+  --bg-tertiary: #0a0a12;
+  --bg-card: #0e0e16;
+  --bg-hover: rgba(255, 255, 255, 0.02);
+  --bg-hover-strong: rgba(255, 255, 255, 0.05);
+  --bg-input: rgba(255, 255, 255, 0.03);
+
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-muted: #6b7280;
+  --text-dim: #4b5563;
+
+  --border-primary: rgba(255, 255, 255, 0.06);
+  --border-secondary: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.12);
+
+  --violet-bg: rgba(139, 92, 246, 0.2);
+  --violet-border: rgba(139, 92, 246, 0.3);
+  --violet-text: #c4b5fd;
+
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+}
+
+[data-theme="light"] {
+  --bg-primary: #f8f9fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3f5;
+  --bg-card: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.02);
+  --bg-hover-strong: rgba(0, 0, 0, 0.04);
+  --bg-input: rgba(0, 0, 0, 0.03);
+
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-dim: #9ca3af;
+
+  --border-primary: rgba(0, 0, 0, 0.08);
+  --border-secondary: rgba(0, 0, 0, 0.12);
+  --border-hover: rgba(0, 0, 0, 0.18);
+
+  --violet-bg: rgba(139, 92, 246, 0.08);
+  --violet-border: rgba(139, 92, 246, 0.25);
+  --violet-text: #7c3aed;
+
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
 }
 
 @theme inline {
@@ -12,20 +62,30 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Hide scrollbar for tab bar on mobile */
+/* ─── Theme-Aware Utility Classes ─────────────────────────── */
+
+.theme-bg-primary { background: var(--bg-primary); }
+.theme-bg-secondary { background: var(--bg-secondary); }
+.theme-bg-tertiary { background: var(--bg-tertiary); }
+.theme-bg-card { background: var(--bg-card); }
+.theme-bg-input { background: var(--bg-input); }
+
+.theme-text-primary { color: var(--text-primary); }
+.theme-text-secondary { color: var(--text-secondary); }
+.theme-text-muted { color: var(--text-muted); }
+.theme-text-dim { color: var(--text-dim); }
+
+.theme-border { border-color: var(--border-primary); }
+.theme-border-secondary { border-color: var(--border-secondary); }
+
+/* ─── Scrollbar ───────────────────────────────────────────── */
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;

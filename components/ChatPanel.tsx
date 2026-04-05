@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import { useDemoStore } from '@/store/demo-store'
 import type { ChatMessage, ChatOptimization, GepaRun } from '@/store/demo-store'
 import { computeDiff } from '@/lib/diff'
+import { classifyInput } from '@/lib/input-classifier'
 
 const MAX_DISPLAY_ROWS = 100
 
@@ -363,13 +364,138 @@ export function ChatPanel() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Fire-and-forget session persistence
+  const saveToSession = useCallback((msg: ChatMessage) => {
+    const conn = useDemoStore.getState().activeConnection
+    if (!conn?.name) return
+    const rows = msg.rows ?? []
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'message',
+        dbName: conn.name,
+        dbType: conn.type,
+        currentPrompt: useDemoStore.getState().currentPrompt,
+        message: {
+          id: msg.id,
+          question: msg.question,
+          sql: msg.sql,
+          status: msg.status,
+          feedback: msg.feedback,
+          rowCount: msg.rowCount,
+          columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+          preview: rows.slice(0, 3),
+          attempts: msg.attempts,
+          promptGeneration: msg.promptGeneration,
+          timestamp: Date.now(),
+        },
+      }),
+    }).catch(() => {})
+  }, [])
+
+  const saveFeedback = useCallback((messageId: string, feedback: 'correct' | 'wrong') => {
+    const conn = useDemoStore.getState().activeConnection
+    if (!conn?.name) return
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'feedback', dbName: conn.name, messageId, feedback }),
+    }).catch(() => {})
+  }, [])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
+  // Handle suggestion — trigger GEPA with the suggestion as a correction
+  const handleSuggestion = useCallback(async (suggestion: string) => {
+    const id = Date.now().toString()
+    const currentGen = useDemoStore.getState().optimizations.length
+    const msg: ChatMessage = {
+      id,
+      question: suggestion,
+      reasoning: '',
+      sql: '',
+      rows: [],
+      rowCount: 0,
+      attempts: 0,
+      status: 'done',
+      feedback: null,
+      promptGeneration: currentGen,
+      optimization: { status: 'running', message: 'Applying your suggestion...' },
+    }
+    addChatMessage(msg)
+
+    try {
+      const chatHistory = useDemoStore.getState().chatMessages
+        .filter(m => m.status === 'done' || m.status === 'error')
+        .map(m => ({ question: m.question, sql: m.sql || undefined, rowCount: m.rowCount, feedback: m.feedback }))
+
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          correct: false,
+          question: suggestion,
+          sql: '',
+          rowCount: 0,
+          chatHistory,
+        }),
+      })
+
+      const contentType = res.headers.get('content-type') ?? ''
+      if (contentType.includes('text/event-stream') && res.body) {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+              if (event.type === 'gepa_status') {
+                updateChatMessage(id, { optimization: { status: 'running', message: event.message as string } })
+              }
+              if (event.type === 'done' && event.optimized) {
+                const gepaRun = event.gepaRun as { generation: number; score: number; reflection: string; newPrompt: string; previousPrompt?: string; diffSummary?: string }
+                addGepaRun({ generation: gepaRun.generation, score: gepaRun.score, label: `Gen ${gepaRun.generation}`, timestamp: Date.now(), triggeredBy: 'suggestion' })
+                setOptimizationDone(gepaRun.reflection, gepaRun.newPrompt, { previousPrompt: gepaRun.previousPrompt, score: gepaRun.score, diffSummary: gepaRun.diffSummary })
+                updateChatMessage(id, {
+                  reasoning: `Thanks for the suggestion! I've incorporated it into the prompt.`,
+                  optimization: { status: 'done', generation: gepaRun.generation, score: gepaRun.score, reflection: gepaRun.reflection, diffSummary: gepaRun.diffSummary, previousPrompt: gepaRun.previousPrompt, newPrompt: gepaRun.newPrompt },
+                })
+              }
+              if (event.type === 'done' && !event.optimized) {
+                updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded for the next optimization cycle.', optimization: undefined })
+              }
+            } catch {}
+          }
+        }
+      } else {
+        updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded for the next optimization cycle.', optimization: undefined })
+      }
+    } catch {
+      updateChatMessage(id, { reasoning: 'Failed to process suggestion.', optimization: undefined })
+    }
+  }, [addChatMessage, updateChatMessage, addGepaRun, setOptimizationDone])
+
   const handleSubmit = useCallback(async () => {
     const question = input.trim()
     if (!question || isSubmitting) return
+
+    // Classify: is this a query or a suggestion?
+    const { type: inputType, confidence } = classifyInput(question)
+    if (inputType === 'suggestion' && confidence >= 0.5) {
+      setInput('')
+      handleSuggestion(question)
+      return
+    }
 
     setInput('')
     setIsSubmitting(true)
@@ -451,19 +577,26 @@ export function ChatPanel() {
             } else if (event.type === 'sql_complete') {
               updateChatMessage(id, { sql: event.sql as string })
             } else if (event.type === 'success') {
-              updateChatMessage(id, {
-                status: 'done',
+              const update = {
+                status: 'done' as const,
                 sql: event.sql as string,
                 rows: event.rows as Record<string, unknown>[],
                 rowCount: event.rowCount as number,
                 attempts: event.attempt as number,
-              })
+              }
+              updateChatMessage(id, update)
+              // Persist to session
+              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              if (saved) saveToSession({ ...saved, ...update })
             } else if (event.type === 'failed') {
               const lastErr = event.lastError as string | undefined
-              updateChatMessage(id, {
-                status: 'error',
+              const update = {
+                status: 'error' as const,
                 errorMsg: `Failed after ${event.attempts} attempts${lastErr ? `: ${lastErr}` : ''}`,
-              })
+              }
+              updateChatMessage(id, update)
+              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              if (saved) saveToSession({ ...saved, ...update })
             } else if (event.type === 'error' && event.attempt === 0) {
               updateChatMessage(id, {
                 status: 'error',
@@ -489,7 +622,9 @@ export function ChatPanel() {
     const msg = chatMessages.find(m => m.id === msgId)
     if (!msg) return
 
-    updateChatMessage(msgId, { feedbackSending: true, feedback: correct ? 'correct' : 'wrong' })
+    const fb = correct ? 'correct' : 'wrong' as const
+    updateChatMessage(msgId, { feedbackSending: true, feedback: fb })
+    saveFeedback(msgId, fb)
 
     try {
       // Build chat history for GEPA context — includes user corrections
@@ -757,7 +892,7 @@ export function ChatPanel() {
       </div>
 
       {/* Input */}
-      <div className="shrink-0 border-t border-white/[0.06] px-4 py-3 bg-[#09090f]">
+      <div className="shrink-0 border-t theme-border px-4 py-3 theme-bg-secondary">
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
