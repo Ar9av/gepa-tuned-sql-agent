@@ -30,6 +30,10 @@
   <img src="https://img.shields.io/badge/MySQL-Supported-4479A1?logo=mysql" alt="MySQL"/>
 </p>
 
+<p align="center">
+  <img src="public/platform-screenshot.png" alt="SQL Agent Platform" width="800"/>
+</p>
+
 ---
 
 An AI SQL agent that **gets measurably better over time** — without retraining or fine-tuning the model. It combines three research ideas running together in one app:
