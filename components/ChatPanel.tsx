@@ -408,10 +408,142 @@ export function ChatPanel() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
-  // Handle suggestion — trigger GEPA with the suggestion as a correction
+  // Shared SQL query runner — used by handleSubmit, handleSuggestion, and handleRetry
+  const runSQLQuery = useCallback(async (
+    question: string,
+    history: Array<{
+      question: string
+      sql?: string
+      rowCount: number
+      rows: Record<string, unknown>[]
+      rowsCapped: boolean
+      success: boolean
+      feedback: null | 'correct' | 'wrong'
+    }>
+  ) => {
+    const id = Date.now().toString()
+    const currentGen = useDemoStore.getState().optimizations.length
+    const msg: ChatMessage = {
+      id,
+      question,
+      reasoning: '',
+      sql: '',
+      rows: [],
+      rowCount: 0,
+      attempts: 1,
+      status: 'streaming',
+      feedback: null,
+      promptGeneration: currentGen,
+    }
+    addChatMessage(msg)
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          businessContext: useDemoStore.getState().businessContext || undefined,
+          history,
+        }),
+      })
+
+      if (!res.body) throw new Error('No response body')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+
+            if (event.type === 'attempt_start') {
+              updateChatMessage(id, { attempts: event.attempt as number })
+            } else if (event.type === 'reasoning_chunk') {
+              const current = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              updateChatMessage(id, {
+                reasoning: (current?.reasoning ?? '') + (event.chunk as string),
+              })
+            } else if (event.type === 'reasoning_complete') {
+              updateChatMessage(id, { reasoning: event.reasoning as string })
+            } else if (event.type === 'sql_chunk') {
+              const current = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              updateChatMessage(id, {
+                sql: (current?.sql ?? '') + (event.chunk as string),
+              })
+            } else if (event.type === 'sql_complete') {
+              updateChatMessage(id, { sql: event.sql as string })
+            } else if (event.type === 'success') {
+              const update = {
+                status: 'done' as const,
+                sql: event.sql as string,
+                rows: event.rows as Record<string, unknown>[],
+                rowCount: event.rowCount as number,
+                attempts: event.attempt as number,
+              }
+              updateChatMessage(id, update)
+              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              if (saved) saveToSession({ ...saved, ...update })
+            } else if (event.type === 'failed') {
+              const lastErr = event.lastError as string | undefined
+              const update = {
+                status: 'error' as const,
+                errorMsg: `Failed after ${event.attempts} attempts${lastErr ? `: ${lastErr}` : ''}`,
+              }
+              updateChatMessage(id, update)
+              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
+              if (saved) saveToSession({ ...saved, ...update })
+            } else if (event.type === 'error' && event.attempt === 0) {
+              updateChatMessage(id, {
+                status: 'error',
+                errorMsg: event.error as string,
+              })
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+    } catch (err) {
+      updateChatMessage(id, {
+        status: 'error',
+        errorMsg: (err as Error).message,
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [addChatMessage, updateChatMessage, saveToSession, setIsSubmitting])
+
+  // Handle suggestion — trigger GEPA with the suggestion as a correction,
+  // and also run a new SQL query incorporating the suggestion with full conversation context
   const handleSuggestion = useCallback(async (suggestion: string) => {
     const id = Date.now().toString()
     const currentGen = useDemoStore.getState().optimizations.length
+
+    // Build query history BEFORE adding the suggestion message so it isn't self-referential
+    const MAX_CONTEXT_ROWS = 50
+    const queryHistory = useDemoStore.getState().chatMessages
+      .filter(m => m.status === 'done' || m.status === 'error')
+      .map(m => ({
+        question: m.question,
+        sql: m.sql || undefined,
+        rowCount: m.rowCount,
+        rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
+        rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
+        success: m.status === 'done',
+        feedback: m.feedback,
+      }))
+
     const msg: ChatMessage = {
       id,
       question: suggestion,
@@ -427,23 +559,23 @@ export function ChatPanel() {
     }
     addChatMessage(msg)
 
-    try {
-      const chatHistory = useDemoStore.getState().chatMessages
-        .filter(m => m.status === 'done' || m.status === 'error')
-        .map(m => ({ question: m.question, sql: m.sql || undefined, rowCount: m.rowCount, feedback: m.feedback }))
+    // Build chatHistory for GEPA (includes the suggestion message itself)
+    const chatHistory = useDemoStore.getState().chatMessages
+      .filter(m => m.status === 'done' || m.status === 'error')
+      .map(m => ({ question: m.question, sql: m.sql || undefined, rowCount: m.rowCount, feedback: m.feedback }))
 
-      const res = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          correct: false,
-          question: suggestion,
-          sql: '',
-          rowCount: 0,
-          chatHistory,
-        }),
-      })
-
+    // Fire GEPA feedback in the background — don't block the SQL query
+    fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        correct: false,
+        question: suggestion,
+        sql: '',
+        rowCount: 0,
+        chatHistory,
+      }),
+    }).then(async (res) => {
       const contentType = res.headers.get('content-type') ?? ''
       if (contentType.includes('text/event-stream') && res.body) {
         const reader = res.body.getReader()
@@ -478,7 +610,6 @@ export function ChatPanel() {
           }
         }
       } else {
-        // JSON response — check if optimization happened
         try {
           const data = await res.json()
           if (data.optimized && data.gepaRun) {
@@ -496,10 +627,14 @@ export function ChatPanel() {
           updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded.', optimization: undefined })
         }
       }
-    } catch {
+    }).catch(() => {
       updateChatMessage(id, { reasoning: 'Noted — your suggestion has been recorded for the next optimization cycle.', optimization: undefined })
-    }
-  }, [addChatMessage, updateChatMessage, addGepaRun, setOptimizationDone])
+    })
+
+    // Also run a SQL query using the suggestion as the question with full prior context
+    setIsSubmitting(true)
+    await runSQLQuery(suggestion, queryHistory)
+  }, [addChatMessage, updateChatMessage, addGepaRun, setOptimizationDone, runSQLQuery, setIsSubmitting])
 
   const handleSubmit = useCallback(async () => {
     const question = input.trim()
@@ -516,123 +651,21 @@ export function ChatPanel() {
     setInput('')
     setIsSubmitting(true)
 
-    const id = Date.now().toString()
-    const currentGen = useDemoStore.getState().optimizations.length
-    const msg: ChatMessage = {
-      id,
-      question,
-      reasoning: '',
-      sql: '',
-      rows: [],
-      rowCount: 0,
-      attempts: 1,
-      status: 'streaming',
-      feedback: null,
-      promptGeneration: currentGen,
-    }
-    addChatMessage(msg)
+    const MAX_CONTEXT_ROWS = 50
+    const history = useDemoStore.getState().chatMessages
+      .filter(m => m.status === 'done' || m.status === 'error')
+      .map(m => ({
+        question: m.question,
+        sql: m.sql || undefined,
+        rowCount: m.rowCount,
+        rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
+        rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
+        success: m.status === 'done',
+        feedback: m.feedback,
+      }))
 
-    try {
-      const MAX_CONTEXT_ROWS = 50
-      const history = useDemoStore.getState().chatMessages
-        .filter(m => m.status === 'done' || m.status === 'error')
-        .map(m => ({
-          question: m.question,
-          sql: m.sql || undefined,
-          rowCount: m.rowCount,
-          rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
-          rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
-          success: m.status === 'done',
-          feedback: m.feedback,
-        }))
-
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          businessContext: useDemoStore.getState().businessContext || undefined,
-          history,
-        }),
-      })
-
-      if (!res.body) throw new Error('No response body')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let currentAttempt = 1
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const event = JSON.parse(line.slice(6)) as Record<string, unknown>
-
-            if (event.type === 'attempt_start') {
-              currentAttempt = event.attempt as number
-              updateChatMessage(id, { attempts: currentAttempt })
-            } else if (event.type === 'reasoning_chunk') {
-              const current = chatMessages.find(m => m.id === id)
-              updateChatMessage(id, {
-                reasoning: (current?.reasoning ?? '') + (event.chunk as string),
-              })
-            } else if (event.type === 'reasoning_complete') {
-              updateChatMessage(id, { reasoning: event.reasoning as string })
-            } else if (event.type === 'sql_chunk') {
-              updateChatMessage(id, {
-                sql: (chatMessages.find(m => m.id === id)?.sql ?? '') + (event.chunk as string),
-              })
-            } else if (event.type === 'sql_complete') {
-              updateChatMessage(id, { sql: event.sql as string })
-            } else if (event.type === 'success') {
-              const update = {
-                status: 'done' as const,
-                sql: event.sql as string,
-                rows: event.rows as Record<string, unknown>[],
-                rowCount: event.rowCount as number,
-                attempts: event.attempt as number,
-              }
-              updateChatMessage(id, update)
-              // Persist to session
-              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
-              if (saved) saveToSession({ ...saved, ...update })
-            } else if (event.type === 'failed') {
-              const lastErr = event.lastError as string | undefined
-              const update = {
-                status: 'error' as const,
-                errorMsg: `Failed after ${event.attempts} attempts${lastErr ? `: ${lastErr}` : ''}`,
-              }
-              updateChatMessage(id, update)
-              const saved = useDemoStore.getState().chatMessages.find(m => m.id === id)
-              if (saved) saveToSession({ ...saved, ...update })
-            } else if (event.type === 'error' && event.attempt === 0) {
-              updateChatMessage(id, {
-                status: 'error',
-                errorMsg: event.error as string,
-              })
-            }
-          } catch {
-            // ignore parse errors
-          }
-        }
-      }
-    } catch (err) {
-      updateChatMessage(id, {
-        status: 'error',
-        errorMsg: (err as Error).message,
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [input, isSubmitting, addChatMessage, updateChatMessage, chatMessages])
+    await runSQLQuery(question, history)
+  }, [input, isSubmitting, handleSuggestion, runSQLQuery])
 
   const handleFeedback = useCallback(async (msgId: string, correct: boolean) => {
     const msg = chatMessages.find(m => m.id === msgId)
@@ -777,98 +810,28 @@ export function ChatPanel() {
   // Re-run a question with the current (evolved) prompt
   const handleRetry = useCallback((question: string) => {
     setInput(question)
-    // Auto-submit after a tick so the input is set
-    setTimeout(() => {
+    setTimeout(async () => {
       const store = useDemoStore.getState()
-      if (store.chatInput.trim()) {
-        // Trigger submit by simulating the flow
-        setInput('')
-        setIsSubmitting(true)
+      if (!store.chatInput.trim()) return
+      setInput('')
+      setIsSubmitting(true)
 
-        const id = Date.now().toString()
-        const currentGen = store.optimizations.length
-        const msg: ChatMessage = {
-          id,
-          question,
-          reasoning: '',
-          sql: '',
-          rows: [],
-          rowCount: 0,
-          attempts: 1,
-          status: 'streaming',
-          feedback: null,
-          promptGeneration: currentGen,
-        }
-        addChatMessage(msg)
+      const MAX_CONTEXT_ROWS = 50
+      const history = store.chatMessages
+        .filter(m => m.status === 'done' || m.status === 'error')
+        .map(m => ({
+          question: m.question,
+          sql: m.sql || undefined,
+          rowCount: m.rowCount,
+          rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
+          rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
+          success: m.status === 'done',
+          feedback: m.feedback,
+        }))
 
-        const MAX_CONTEXT_ROWS = 50
-        const history = store.chatMessages
-          .filter(m => m.status === 'done' || m.status === 'error')
-          .map(m => ({
-            question: m.question,
-            sql: m.sql || undefined,
-            rowCount: m.rowCount,
-            rows: m.rows.slice(0, MAX_CONTEXT_ROWS),
-            rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
-            success: m.status === 'done',
-            feedback: m.feedback,
-          }))
-
-        fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question,
-            businessContext: store.businessContext || undefined,
-            history,
-          }),
-        }).then(async (res) => {
-          if (!res.body) throw new Error('No response body')
-          const reader = res.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() ?? ''
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              try {
-                const event = JSON.parse(line.slice(6)) as Record<string, unknown>
-                if (event.type === 'reasoning_complete') {
-                  updateChatMessage(id, { reasoning: event.reasoning as string })
-                } else if (event.type === 'sql_complete') {
-                  updateChatMessage(id, { sql: event.sql as string })
-                } else if (event.type === 'success') {
-                  updateChatMessage(id, {
-                    status: 'done',
-                    sql: event.sql as string,
-                    rows: event.rows as Record<string, unknown>[],
-                    rowCount: event.rowCount as number,
-                    attempts: event.attempt as number,
-                  })
-                } else if (event.type === 'failed') {
-                  updateChatMessage(id, { status: 'error', errorMsg: `Failed after ${event.attempts} attempts` })
-                } else if (event.type === 'reasoning_chunk') {
-                  const cur = useDemoStore.getState().chatMessages.find(m => m.id === id)
-                  updateChatMessage(id, { reasoning: (cur?.reasoning ?? '') + (event.chunk as string) })
-                } else if (event.type === 'sql_chunk') {
-                  const cur = useDemoStore.getState().chatMessages.find(m => m.id === id)
-                  updateChatMessage(id, { sql: (cur?.sql ?? '') + (event.chunk as string) })
-                }
-              } catch {}
-            }
-          }
-        }).catch((err) => {
-          updateChatMessage(id, { status: 'error', errorMsg: (err as Error).message })
-        }).finally(() => {
-          setIsSubmitting(false)
-        })
-      }
+      await runSQLQuery(question, history)
     }, 50)
-  }, [addChatMessage, updateChatMessage, setInput, setIsSubmitting])
+  }, [setInput, setIsSubmitting, runSQLQuery])
 
   if (!activeConnection) {
     return (
