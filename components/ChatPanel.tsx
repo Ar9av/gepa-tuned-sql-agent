@@ -419,6 +419,7 @@ export function ChatPanel() {
       rowsCapped: boolean
       success: boolean
       feedback: null | 'correct' | 'wrong'
+      errorMsg?: string
     }>
   ) => {
     const id = Date.now().toString()
@@ -542,6 +543,7 @@ export function ChatPanel() {
         rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
         success: m.status === 'done',
         feedback: m.feedback,
+        errorMsg: m.errorMsg,
       }))
 
     const msg: ChatMessage = {
@@ -662,6 +664,7 @@ export function ChatPanel() {
         rowsCapped: m.rows.length > MAX_CONTEXT_ROWS,
         success: m.status === 'done',
         feedback: m.feedback,
+        errorMsg: m.errorMsg,
       }))
 
     await runSQLQuery(question, history)

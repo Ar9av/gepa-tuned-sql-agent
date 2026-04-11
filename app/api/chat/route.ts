@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
 import { llm, MODEL } from '@/lib/llm'
-import { getCurrentPrompt } from '@/lib/gepa'
+import { getCurrentPrompt, recordResult, shouldOptimize, runOptimizationCycle } from '@/lib/gepa'
 import { getActiveConfig, executeQueryAsync } from '@/lib/connector'
 import { extractSchemaGraph, formatSchemaAsText } from '@/lib/schema-extractor'
+import { updatePrompt } from '@/lib/connection-store'
 
 const MAX_ATTEMPTS = 3
 
@@ -14,6 +15,7 @@ interface HistoryEntry {
   rowsCapped: boolean
   success: boolean
   feedback: null | 'correct' | 'wrong'
+  errorMsg?: string
 }
 
 function extractSQL(raw: string): string {
@@ -31,6 +33,7 @@ function buildConversationContext(history: HistoryEntry[]): string {
     let entry = `[Q${i + 1}] ${h.question}`
     if (h.sql) entry += `\nSQL: ${h.sql}`
     entry += `\nResult: ${h.rowCount} rows, ${h.success ? 'success' : 'failed'}`
+    if (!h.success && h.errorMsg) entry += `\nError: ${h.errorMsg}`
     if (h.feedback) entry += ` (user marked: ${h.feedback})`
     if (h.rows.length > 0) {
       const preview = h.rows.slice(0, 5)
@@ -96,6 +99,9 @@ export async function POST(req: NextRequest) {
 
         let lastError = ''
         let lastSQL = ''
+        const collectedErrors: string[] = []
+        let finalSuccess = false
+        let finalAttempts = 0
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           send({ type: 'attempt_start', attempt })
@@ -161,8 +167,11 @@ export async function POST(req: NextRequest) {
             if (result.rows.length === 0 && expectsData && attempt < MAX_ATTEMPTS) {
               // Treat as a soft failure — retry with a broadened hint
               lastError = 'The query returned 0 rows. The date filter might be too restrictive — try broadening it (e.g., last 7 days, last 30 days, or remove date filter). Also ensure timezone handling is correct (the data might use a different timezone).'
+              collectedErrors.push(lastError)
               send({ type: 'error', error: lastError, attempt })
             } else {
+              finalSuccess = true
+              finalAttempts = attempt
               send({
                 type: 'success',
                 sql,
@@ -170,11 +179,29 @@ export async function POST(req: NextRequest) {
                 rowCount: result.rowCount,
                 attempt,
               })
+              // Record into GEPA (multi-attempt successes are valuable signal too)
+              recordResult({
+                question,
+                finalSQL: sql,
+                attempts: attempt,
+                success: true,
+                errors: collectedErrors,
+                timestamp: Date.now(),
+              })
+              if (shouldOptimize() && collectedErrors.length > 0) {
+                const activeConf = getActiveConfig()
+                runOptimizationCycle(undefined, dialectName)
+                  .then(result => {
+                    if (result && activeConf) updatePrompt(activeConf.name, result.newPrompt)
+                  })
+                  .catch(() => {})
+              }
               controller.close()
               return
             }
           } else {
             lastError = result.error
+            collectedErrors.push(result.error)
             send({ type: 'error', error: result.error, attempt })
           }
 
@@ -210,7 +237,28 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        finalAttempts = MAX_ATTEMPTS
         send({ type: 'failed', attempts: MAX_ATTEMPTS, lastError, lastSQL })
+
+        // Auto-record into GEPA so it learns from failures without user action
+        recordResult({
+          question,
+          finalSQL: lastSQL,
+          attempts: finalAttempts,
+          success: finalSuccess,
+          errors: collectedErrors,
+          timestamp: Date.now(),
+        })
+
+        // Background optimization — fire-and-forget, never blocks the response
+        if (shouldOptimize()) {
+          const activeConf = getActiveConfig()
+          runOptimizationCycle(undefined, dialectName)
+            .then(result => {
+              if (result && activeConf) updatePrompt(activeConf.name, result.newPrompt)
+            })
+            .catch(() => {})
+        }
       } catch (err: unknown) {
         controller.enqueue(
           encoder.encode(
