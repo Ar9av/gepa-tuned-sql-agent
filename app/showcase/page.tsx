@@ -49,7 +49,7 @@ type DiffLine = { kind: 'same' | 'add'; text: string }
 
 interface BubbleData {
   id: number
-  type: 'user' | 'thinking' | 'sql_attempt' | 'sql_ok' | 'sql_err' | 'failed' | 'gepa_diff'
+  type: 'user' | 'thinking' | 'sql_attempt' | 'sql_ok' | 'sql_err' | 'failed' | 'gepa_diff' | 'query_group'
   text?: string
   sql?: string
   rows?: Record<string, string | number>[]
@@ -57,6 +57,9 @@ interface BubbleData {
   badge?: string
   thoughts?: string[]
   diff?: { from: number; to: number; lines: DiffLine[] }
+  // query_group fields
+  steps?: BubbleData[]
+  result?: BubbleData
 }
 
 type Attempt =
@@ -255,10 +258,10 @@ function diffPrompts(from: number, to: number): DiffLine[] {
   }))
 }
 
-function scoreColor(s: number) {
-  if (s > 0.82) return '#4ade80'
-  if (s > 0.66) return '#facc15'
-  return '#f87171'
+function scoreColor(s: number, dark = true) {
+  if (s > 0.82) return dark ? '#4ade80' : '#16a34a'
+  if (s > 0.66) return dark ? '#facc15' : '#b45309'
+  return dark ? '#f87171' : '#dc2626'
 }
 
 // ─── ER Diagram ───────────────────────────────────────────────────────────────
@@ -268,7 +271,7 @@ function ERDModal({ onClose, dark }: { onClose: () => void; dark: boolean }) {
   const bg2 = dark ? '#0d0d1a' : '#ffffff'
   const br  = dark ? '#ffffff18' : '#00000012'
   const tx  = dark ? '#e2e8f0'  : '#1e293b'
-  const mu  = dark ? '#64748b'  : '#94a3b8'
+  const mu  = dark ? '#64748b'  : '#475569'
   const pk  = dark ? '#a78bfa'  : '#7c3aed'
   const fk  = dark ? '#60a5fa'  : '#2563eb'
 
@@ -423,7 +426,7 @@ function InlineDiff({ from, to, lines, dark }: { from: number; to: number; lines
   const bg    = dark ? '#0a0a16' : '#f8f9fc'
   const hdr   = dark ? '#13132a' : '#eef2ff'
   const br    = dark ? '#ffffff18' : '#6366f120'
-  const same  = dark ? '#6b7280'  : '#9ca3af'
+  const same  = dark ? '#6b7280'  : '#64748b'
   const addBg = dark ? '#14532d30' : '#dcfce7'
   const addTx = dark ? '#4ade80'   : '#166534'
   const addMk = dark ? '#22c55e'   : '#16a34a'
@@ -473,25 +476,35 @@ function InlineDiff({ from, to, lines, dark }: { from: number; to: number; lines
 
 // ─── Bubble components ────────────────────────────────────────────────────────
 
-function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
-  const tx   = dark ? '#f1f5f9' : '#0f172a'
-  const mu   = dark ? '#64748b' : '#94a3b8'
-  const card = dark ? 'rgba(255,255,255,0.025)' : '#ffffff'
-  const br   = dark ? 'rgba(255,255,255,0.07)'  : 'rgba(0,0,0,0.08)'
+function Bubble({
+  b, dark, expandedGroups, toggleGroup,
+}: {
+  b: BubbleData
+  dark: boolean
+  expandedGroups?: Set<number>
+  toggleGroup?: (id: number) => void
+}) {
+  const tx    = dark ? '#f1f5f9'  : '#0f172a'
+  const mu    = dark ? '#64748b'  : '#64748b'   // same saturation both modes — was too pale in light
+  const muted = dark ? '#475569'  : '#334155'   // darker variant for reasoning text
+  const card  = dark ? 'rgba(255,255,255,0.025)' : '#ffffff'
+  const br    = dark ? 'rgba(255,255,255,0.07)'  : 'rgba(0,0,0,0.1)'
+  const errTx = dark ? '#f87171' : '#dc2626'
+  const okTx  = dark ? '#4ade80' : '#16a34a'
 
   if (b.type === 'user') return (
     <div className="flex justify-end">
       <div className="rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[86%]"
-        style={{ background: 'rgba(124,58,237,0.18)', border: '1px solid rgba(124,58,237,0.35)' }}>
-        <p className="text-sm font-medium" style={{ color: tx }}>{b.text}</p>
+        style={{ background: dark ? 'rgba(124,58,237,0.18)' : 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.35)' }}>
+        <p className="text-sm font-medium" style={{ color: dark ? tx : '#3b0764' }}>{b.text}</p>
       </div>
     </div>
   )
 
   if (b.type === 'thinking') return (
     <div className="rounded-xl p-3" style={{ background: card, border: `1px solid ${br}` }}>
-      <div className="flex items-center gap-1.5 mb-2" style={{ color: mu }}>
-        <span className="text-[10px] font-mono">Reasoning</span>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-[10px] font-mono font-semibold" style={{ color: mu }}>Reasoning</span>
         <span className="flex gap-0.5">
           {[0, 150, 300].map(d => (
             <span key={d} className="w-1 h-1 rounded-full bg-violet-400" style={{ animation: `pulse 1.2s ${d}ms infinite` }} />
@@ -500,8 +513,8 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
       </div>
       <div className="space-y-1">
         {(b.thoughts ?? []).map((t, i) => (
-          <div key={i} className="flex items-start gap-1.5 text-[11px]" style={{ color: mu }}>
-            <span className="mt-0.5 shrink-0">•</span>
+          <div key={i} className="flex items-start gap-1.5 text-[11px]" style={{ color: muted }}>
+            <span className="mt-0.5 shrink-0" style={{ color: mu }}>•</span>
             <span>{t}</span>
           </div>
         ))}
@@ -515,7 +528,7 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
         <span className="w-1.5 h-1.5 rounded-full bg-violet-500" style={{ animation: 'pulse 1s infinite' }} />
         <span className="text-[10px] font-mono">Attempt {b.attempt} — Generating SQL…</span>
       </div>
-      <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: dark ? '#d1d5db' : '#374151' }}>
+      <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: dark ? '#d1d5db' : '#1e293b' }}>
         {b.sql}<span style={{ animation: 'pulse 0.8s infinite', color: mu }}>▋</span>
       </pre>
     </div>
@@ -524,11 +537,11 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
   if (b.type === 'sql_err') return (
     <div className="space-y-1.5">
       <div className="rounded-xl p-3" style={{ background: card, border: `1px solid ${br}` }}>
-        <div className="text-[10px] mb-1.5 font-mono" style={{ color: mu }}>Attempt {b.attempt}</div>
-        <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: dark ? '#9ca3af' : '#6b7280' }}>{b.sql}</pre>
+        <div className="text-[10px] mb-1.5 font-mono font-semibold" style={{ color: mu }}>Attempt {b.attempt}</div>
+        <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: dark ? '#9ca3af' : '#475569' }}>{b.sql}</pre>
       </div>
       <div className="flex items-start gap-2 text-[11px] rounded-xl px-3 py-2 font-mono"
-        style={{ color: '#f87171', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)' }}>
+        style={{ color: errTx, background: dark ? 'rgba(239,68,68,0.06)' : 'rgba(220,38,38,0.06)', border: `1px solid ${dark ? 'rgba(239,68,68,0.18)' : 'rgba(220,38,38,0.2)'}` }}>
         <span className="shrink-0 mt-px">✗</span><span>{b.text}</span>
       </div>
     </div>
@@ -540,29 +553,29 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
       <div className="space-y-2">
         <div className="rounded-xl p-3" style={{ background: card, border: `1px solid ${br}` }}>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-mono" style={{ color: mu }}>Attempt {b.attempt}</span>
+            <span className="text-[10px] font-mono font-semibold" style={{ color: mu }}>Attempt {b.attempt}</span>
             {b.badge && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                style={{ color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)' }}>
+                style={{ color: okTx, background: dark ? 'rgba(74,222,128,0.1)' : 'rgba(22,163,74,0.1)', border: `1px solid ${dark ? 'rgba(74,222,128,0.25)' : 'rgba(22,163,74,0.3)'}` }}>
                 {b.badge}
               </span>
             )}
           </div>
-          <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: '#4ade80' }}>{b.sql}</pre>
+          <pre className="text-[11px] font-mono whitespace-pre overflow-x-auto leading-relaxed" style={{ color: okTx }}>{b.sql}</pre>
         </div>
         {cols.length > 0 && b.rows && (
           <div className="rounded-xl overflow-hidden" style={{ background: card, border: `1px solid ${br}` }}>
             <table className="w-full text-xs font-mono">
               <thead>
-                <tr style={{ borderBottom: `1px solid ${br}` }}>
-                  {cols.map(k => <th key={k} className="px-3 py-1.5 text-left font-normal" style={{ color: mu }}>{k}</th>)}
+                <tr style={{ borderBottom: `1px solid ${br}`, background: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.03)' }}>
+                  {cols.map(k => <th key={k} className="px-3 py-1.5 text-left font-semibold" style={{ color: mu }}>{k}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {b.rows.map((row, ri) => (
                   <tr key={ri} style={{ borderBottom: `1px solid ${br}` }}>
                     {cols.map(k => (
-                      <td key={k} className="px-3 py-1.5" style={{ color: dark ? '#d1d5db' : '#374151' }}>
+                      <td key={k} className="px-3 py-1.5" style={{ color: dark ? '#d1d5db' : '#1e293b' }}>
                         {typeof row[k] === 'number' && String(row[k]).length >= 4
                           ? (row[k] as number).toLocaleString()
                           : String(row[k])}
@@ -580,14 +593,57 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
 
   if (b.type === 'failed') return (
     <div className="flex items-center gap-2 text-xs rounded-xl px-3 py-2.5 font-medium"
-      style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}>
-      <span>❌</span><span>{b.text}</span>
+      style={{ color: errTx, background: dark ? 'rgba(239,68,68,0.07)' : 'rgba(220,38,38,0.07)', border: `1px solid ${dark ? 'rgba(239,68,68,0.2)' : 'rgba(220,38,38,0.25)'}` }}>
+      <span>✗</span><span>{b.text}</span>
     </div>
   )
 
   if (b.type === 'gepa_diff' && b.diff) return (
     <InlineDiff from={b.diff.from} to={b.diff.to} lines={b.diff.lines} dark={dark} />
   )
+
+  if (b.type === 'query_group' && b.result) {
+    const steps     = b.steps ?? []
+    const isExpanded = expandedGroups?.has(b.id) ?? false
+    const isFailed  = b.result.type === 'failed'
+    return (
+      <div className="space-y-2">
+        {/* User question */}
+        <div className="flex justify-end">
+          <div className="rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[86%]"
+            style={{ background: dark ? 'rgba(124,58,237,0.18)' : 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.35)' }}>
+            <p className="text-sm font-medium" style={{ color: dark ? tx : '#3b0764' }}>{b.text}</p>
+          </div>
+        </div>
+
+        {/* Steps toggle */}
+        {steps.length > 0 && (
+          <button
+            onClick={() => toggleGroup?.(b.id)}
+            className="flex items-center gap-1.5 text-[10px] font-mono select-none transition-opacity hover:opacity-70"
+            style={{ color: mu }}
+          >
+            <span style={{ fontSize: 7 }}>{isExpanded ? '▼' : '▶'}</span>
+            <span>{steps.length} intermediate step{steps.length !== 1 ? 's' : ''}</span>
+            {isFailed && <span style={{ color: errTx }}>· failed</span>}
+            <span style={{ color: dark ? '#374151' : '#94a3b8' }}>· {isExpanded ? 'collapse' : 'expand'}</span>
+          </button>
+        )}
+
+        {/* Intermediate steps (expanded) */}
+        {isExpanded && (
+          <div className="space-y-2 pl-3 border-l-2" style={{ borderColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)' }}>
+            {steps.map(step => (
+              <Bubble key={step.id} b={step} dark={dark} expandedGroups={expandedGroups} toggleGroup={toggleGroup} />
+            ))}
+          </div>
+        )}
+
+        {/* Final result — always visible */}
+        <Bubble b={b.result} dark={dark} expandedGroups={expandedGroups} toggleGroup={toggleGroup} />
+      </div>
+    )
+  }
 
   return null
 }
@@ -596,8 +652,8 @@ function Bubble({ b, dark }: { b: BubbleData; dark: boolean }) {
 
 function EndSummary({ dark, onConnect }: { dark: boolean; onConnect: () => void }) {
   const tx  = dark ? '#f1f5f9' : '#0f172a'
-  const mu  = dark ? '#64748b' : '#94a3b8'
-  const br  = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)'
+  const mu  = dark ? '#64748b' : '#475569'
+  const br  = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.1)'
   const bg  = dark ? 'rgba(255,255,255,0.02)' : '#ffffff'
 
   const allDiff = diffPrompts(0, 2)
@@ -611,11 +667,11 @@ function EndSummary({ dark, onConnect }: { dark: boolean; onConnect: () => void 
           The agent ran 6 queries across 2 optimization cycles. Score improved from 50% to 92%.
         </p>
         <div className="flex items-center gap-3 mt-3 text-xs font-mono font-bold">
-          <span style={{ color: scoreColor(0.50) }}>50%</span>
+          <span style={{ color: scoreColor(0.50, dark) }}>50%</span>
           <span style={{ color: mu }}>→</span>
-          <span style={{ color: scoreColor(0.78) }}>78%</span>
+          <span style={{ color: scoreColor(0.78, dark) }}>78%</span>
           <span style={{ color: mu }}>→</span>
-          <span style={{ color: scoreColor(0.92) }}>92%</span>
+          <span style={{ color: scoreColor(0.92, dark) }}>92%</span>
         </div>
       </div>
 
@@ -669,8 +725,8 @@ function PromptPanel({ gen, score, history, diffLines, dark }: {
   gen: number; score: number; history: number[]; diffLines: DiffLine[]; dark: boolean
 }) {
   const tx  = dark ? '#f1f5f9' : '#0f172a'
-  const mu  = dark ? '#64748b' : '#94a3b8'
-  const br  = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)'
+  const mu  = dark ? '#64748b' : '#475569'
+  const br  = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.1)'
   const bg  = dark ? 'rgba(255,255,255,0.02)'  : '#ffffff'
 
   const W = 220; const H = 52
@@ -686,15 +742,15 @@ function PromptPanel({ gen, score, history, diffLines, dark }: {
       <div>
         <div className="flex justify-between text-[10px] mb-1.5">
           <span style={{ color: mu }}>Benchmark score</span>
-          <span className="font-mono font-bold" style={{ color: scoreColor(score) }}>
+          <span className="font-mono font-bold" style={{ color: scoreColor(score, dark) }}>
             {(score * 100).toFixed(1)}%
           </span>
         </div>
         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: dark ? 'rgba(255,255,255,0.06)' : '#e2e8f0' }}>
-          <div className="h-full rounded-full transition-all duration-75" style={{ width: `${score * 100}%`, backgroundColor: scoreColor(score) }} />
+          <div className="h-full rounded-full transition-all duration-75" style={{ width: `${score * 100}%`, backgroundColor: scoreColor(score, dark) }} />
         </div>
         {gen > 0 && (
-          <p className="text-[10px] mt-1" style={{ color: '#4ade80' }}>
+          <p className="text-[10px] mt-1" style={{ color: scoreColor(1, dark) }}>
             +{((SCORES[gen] - SCORES[0]) * 100).toFixed(0)}pp vs baseline
           </p>
         )}
@@ -782,6 +838,7 @@ export default function ShowcasePage() {
   const [diffLines, setDiffLines]   = useState<DiffLine[]>(PROMPTS[0].split('\n').map(t => ({ kind: 'same' as const, text: t })))
   const [showER, setShowER]         = useState(false)
   const [started, setStarted]       = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
   const { setConnectModalOpen } = useDemoStore()
 
@@ -807,6 +864,48 @@ export default function ShowcasePage() {
       if (!prev.length) return prev
       const last = prev[prev.length - 1]
       return [...prev.slice(0, -1), { ...last, ...update }]
+    })
+  }
+
+  function toggleGroup(id: number) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function collapseLastQuery() {
+    const groupId = uid()
+    setBubbles(prev => {
+      // Find the last 'user' bubble
+      let userIdx = -1
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].type === 'user') { userIdx = i; break }
+      }
+      if (userIdx === -1) return prev
+
+      const afterUser = prev.slice(userIdx + 1)
+
+      // Find final result bubble (last sql_ok or failed)
+      let resultIdx = -1
+      let result: BubbleData | null = null
+      for (let i = afterUser.length - 1; i >= 0; i--) {
+        if (afterUser[i].type === 'sql_ok' || afterUser[i].type === 'failed') {
+          result = afterUser[i]; resultIdx = i; break
+        }
+      }
+      if (!result) return prev
+
+      const steps = afterUser.slice(0, resultIdx)
+      const groupBubble: BubbleData = {
+        id: groupId,
+        type: 'query_group',
+        text: prev[userIdx].text,
+        steps,
+        result,
+      }
+      return [...prev.slice(0, userIdx), groupBubble]
     })
   }
 
@@ -922,6 +1021,7 @@ export default function ShowcasePage() {
       // ── Round 1: baseline prompt — queries will fail and self-debug ──
       for (const id of ROUND_1) {
         await playQuery(QUERIES[id])
+        collapseLastQuery()
         setDoneSets(prev => ({ ...prev, r1: new Set([...prev.r1, id]) }))
         await sleep(900)
       }
@@ -934,6 +1034,7 @@ export default function ShowcasePage() {
       // ── Round 2: evolved prompt — same queries, first-try success ──
       for (const id of ROUND_2) {
         await playQuery(QUERIES[id])
+        collapseLastQuery()
         setDoneSets(prev => ({ ...prev, r2: new Set([...prev.r2, id]) }))
         await sleep(900)
       }
@@ -944,7 +1045,7 @@ export default function ShowcasePage() {
       setAppState('done')
     } catch { /* cancelled */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playQuery, playGepa])
+  }, [playQuery, playGepa, collapseLastQuery])
 
   function resetDemo() {
     cancel.current = true
@@ -959,6 +1060,7 @@ export default function ShowcasePage() {
       setScoreHist([SCORES[0]])
       setDiffLines(PROMPTS[0].split('\n').map(t => ({ kind: 'same' as const, text: t })))
       setStarted(false)
+      setExpandedGroups(new Set())
     }, 80)
   }
 
@@ -975,16 +1077,16 @@ export default function ShowcasePage() {
   const bg2      = isDark ? '#080810' : '#ffffff'
   const br       = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)'
   const tx       = isDark ? '#f1f5f9' : '#0f172a'
-  const mu       = isDark ? '#64748b' : '#94a3b8'
+  const mu       = isDark ? '#64748b' : '#475569'
   const phaseLabel = appState === 'gepa'
-    ? { text: 'GEPA optimizing…',      dot: isDark ? '#a78bfa' : '#7c3aed', pulse: true  }
+    ? { text: 'GEPA optimizing…',  dot: isDark ? '#a78bfa' : '#7c3aed', pulse: true  }
     : round === 'end'
-    ? { text: 'Demo complete',          dot: '#4ade80',                       pulse: false }
+    ? { text: 'Gen 2 · 92%',       dot: isDark ? '#4ade80' : '#16a34a', pulse: false }
     : !started
-    ? { text: 'Ready',                  dot: isDark ? '#6b7280' : '#94a3b8',  pulse: false }
+    ? { text: 'Start',             dot: isDark ? '#6b7280' : '#64748b', pulse: false }
     : round === 1
-    ? { text: 'Baseline — Gen 0',       dot: isDark ? '#6b7280' : '#94a3b8',  pulse: appState === 'running' }
-    : { text: 'Evolved — Gen 1',        dot: '#4ade80',                       pulse: appState === 'running' }
+    ? { text: 'Baseline — Gen 0',  dot: isDark ? '#6b7280' : '#64748b', pulse: appState === 'running' }
+    : { text: 'Evolved — Gen 1',   dot: isDark ? '#4ade80' : '#16a34a', pulse: appState === 'running' }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ background: bg, color: tx, fontFamily: 'ui-monospace,"SF Mono",Consolas,monospace' }}>
@@ -1012,7 +1114,7 @@ export default function ShowcasePage() {
           {/* Gen + score */}
           <div className="hidden sm:flex items-center gap-2 text-[11px]" style={{ color: mu }}>
             <span>Gen <span className="font-bold" style={{ color: tx }}>{gen}</span></span>
-            <span className="font-bold" style={{ color: scoreColor(score) }}>{(score * 100).toFixed(0)}%</span>
+            <span className="font-bold" style={{ color: scoreColor(score, isDark) }}>{(score * 100).toFixed(0)}%</span>
           </div>
 
           {/* ER Diagram */}
@@ -1077,7 +1179,7 @@ export default function ShowcasePage() {
               </div>
             )}
 
-            {bubbles.map(b => <Bubble key={b.id} b={b} dark={isDark} />)}
+            {bubbles.map(b => <Bubble key={b.id} b={b} dark={isDark} expandedGroups={expandedGroups} toggleGroup={toggleGroup} />)}
 
             {/* End summary */}
             {round === 'end' && appState === 'done' && (
